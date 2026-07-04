@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+ENV/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Build and package outputs
+build/
+dist/
+*.egg-info/
+
+# Local data and model artifacts
+data/raw/
+data/interim/
+data/processed/
+models/
+outputs/
+exports/
+chroma/
+chroma_db/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs and temporary files
+*.log
+*.tmp
+tmp/
+temp/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local agent/session caches
+.claude/
+.codex/
+.agents/
+CLAUDE.md
+CURRENT_SESSION.md
+SESSION_INDEX.md
+session-dashboard.html
