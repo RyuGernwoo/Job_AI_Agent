@@ -13,21 +13,21 @@ from lectureops_agent.models.schemas import (
 from lectureops_agent.services.chunk_service import chunk_text
 from lectureops_agent.services.generation_service import generate_lesson_package
 from lectureops_agent.services.parser_service import decode_text_material
-from lectureops_agent.services.retrieval_service import retrieve_chunks
 from lectureops_agent.services.review_service import apply_review_patch
+from lectureops_agent.services.vector_store import InMemoryVectorStore, VectorStore
 
 CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
 
 
-def create_app() -> FastAPI:
+def create_app(vector_store: VectorStore | None = None) -> FastAPI:
     app = FastAPI(
         title="LectureOps Agent",
         description="Job training lecture operation assistant AI Agent MVP",
         version="0.1.0",
     )
     projects: dict[str, Project] = {}
-    project_chunks: dict[str, list[MaterialChunk]] = {}
+    vector_store = vector_store or InMemoryVectorStore()
     project_document_counts: dict[str, int] = {}
     packages: dict[str, LessonPackage] = {}
 
@@ -39,7 +39,6 @@ def create_app() -> FastAPI:
     def create_project(payload: ProjectCreate) -> Project:
         project = payload.to_project()
         projects[project.project_id] = project
-        project_chunks[project.project_id] = []
         project_document_counts[project.project_id] = 0
         return project
 
@@ -67,7 +66,7 @@ def create_app() -> FastAPI:
             chunk_overlap_chars=CHUNK_OVERLAP_CHARS,
             metadata={"content_type": file.content_type or "application/octet-stream"},
         )
-        project_chunks[project_id].extend(chunks)
+        vector_store.upsert(project_id=project_id, chunks=chunks)
         return MaterialIngestResult(
             project_id=project_id,
             document_id=document_id,
@@ -83,11 +82,7 @@ def create_app() -> FastAPI:
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
         try:
-            return retrieve_chunks(
-                query=payload.query,
-                chunks=project_chunks.get(project_id, []),
-                top_k=payload.top_k,
-            )
+            return vector_store.query(project_id=project_id, query=payload.query, top_k=payload.top_k)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

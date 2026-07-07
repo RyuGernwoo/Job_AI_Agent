@@ -26,11 +26,12 @@
 - Pydantic 기반 Project, MaterialChunk, LessonPackage schema
 - TXT/MD/PDF 업로드 텍스트 추출 및 chunk 생성
 - 업로드된 chunk 대상 in-memory keyword retrieval
+- Chroma 확장을 위한 VectorStore 경계
 - mock generation service 기반 교안·실습·평가 패키지 생성
 - `draft -> reviewed -> approved` 검토 상태 전환
 - `unittest` 기반 회귀 테스트
 
-아직 구현하지 않은 범위는 Chroma 연결, 실제 LLM provider, DOCX export, Streamlit UI, RAGAS 평가 자동화입니다.
+아직 구현하지 않은 범위는 실제 Chroma 런타임 검증, 실제 LLM provider, DOCX export, Streamlit UI, RAGAS 평가 자동화입니다.
 
 ## 실행 방법
 
@@ -112,6 +113,8 @@ docs/
 
 - Name: RyuGernwoo
 - Email: qesadgun@gmail.com
+
+
 
 
 
