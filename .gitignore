@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -31,7 +31,7 @@ dist/
 data/raw/
 data/interim/
 data/processed/
-models/
+/models/
 outputs/
 exports/
 chroma/
@@ -61,3 +61,4 @@ CLAUDE.md
 CURRENT_SESSION.md
 SESSION_INDEX.md
 session-dashboard.html
+

@@ -1,29 +1,62 @@
-# Job AI Agent
+﻿# Job AI Agent
 
-직업훈련 강의 운영 보조 AI Agent MVP 기획 저장소입니다.
+직업훈련 강의 운영 보조 AI Agent MVP 저장소입니다.
 
-이 프로젝트는 직업훈련 강사가 강의 준비 과정에서 반복적으로 작성하는 교안, 실습 과제, 평가 문항 초안을 AI로 생성하고, 사람이 검토한 뒤 문서 산출물로 저장하는 서비스를 목표로 합니다. 현재 저장소는 구현 착수 전 단계의 서비스 기획서, 구현명세서, 데이터셋 선정 계획서, 검증 프로토콜을 정리한 문서 중심 저장소입니다.
+이 프로젝트는 직업훈련 강사가 강의 준비 과정에서 반복적으로 작성하는 교안, 실습 과제, 평가 문항 초안을 AI로 생성하고, 사람이 검토한 뒤 문서 산출물로 저장하는 서비스를 목표로 합니다. 현재 저장소는 기획 문서와 1단계 FastAPI 구현 골격을 함께 포함합니다.
 
 ## 프로젝트 목표
 
-- 1개월 안에 구현 가능한 MVP 범위를 정의합니다.
-- 개인 프로젝트 수준에 맞게 서비스 범위를 좁힙니다.
-- 실제 오픈소스와 상용 서비스 사례를 참고해 구현 방향을 정리합니다.
+- 1개월 안에 구현 가능한 MVP 범위를 유지합니다.
+- 개인 프로젝트 수준에 맞게 기능을 좁혀 end-to-end 흐름을 먼저 만듭니다.
 - RAG 기반 교안·실습·평가 생성, HITL 검토, DOCX 산출을 핵심 흐름으로 둡니다.
+- 실제 구현은 mock provider와 검증 가능한 schema부터 시작합니다.
 
-## 주요 기능 범위
+## 현재 구현 상태
 
-MVP에서 다루는 핵심 기능은 다음과 같습니다.
+2026-07-07 기준 구현된 범위는 다음과 같습니다.
 
-- 커리큘럼과 NCS 기반 강의 목표 입력
-- PDF/TXT 교재 업로드 및 chunk 처리
-- Vector DB 기반 근거 검색
-- 교안, 실습 과제, 평가 문항 초안 생성
-- 사람이 검토하고 수정하는 승인 흐름
-- 승인된 결과의 DOCX export
-- Retrieval Gold Set과 Generation Gold Set 기반 검증
+- FastAPI 앱 skeleton
+- `GET /health`
+- `POST /api/projects`
+- `POST /api/projects/{project_id}/materials`
+- `POST /api/projects/{project_id}/retrieve`
+- `POST /api/projects/{project_id}/generate`
+- `GET /api/packages/{package_id}`
+- `PATCH /api/packages/{package_id}/review`
+- Pydantic 기반 Project, MaterialChunk, LessonPackage schema
+- TXT/MD 업로드 텍스트 디코딩 및 chunk 생성
+- 업로드된 chunk 대상 in-memory keyword retrieval
+- mock generation service 기반 교안·실습·평가 패키지 생성
+- `draft -> reviewed -> approved` 검토 상태 전환
+- `unittest` 기반 회귀 테스트
 
-MVP에서 제외하는 범위는 LMS 연동, 자동 채점, 학습자 계정 관리, 대규모 기관 운영 기능입니다.
+아직 구현하지 않은 범위는 PDF 파싱, Chroma 연결, 실제 LLM provider, DOCX export, Streamlit UI, RAGAS 평가 자동화입니다.
+
+## 실행 방법
+
+Python 3.11 이상을 기준으로 합니다.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+$env:PYTHONPATH="src"
+python -m uvicorn lectureops_agent.app.main:app --reload
+```
+
+서버 실행 후 다음 주소에서 Swagger UI를 확인합니다.
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## 테스트 방법
+
+현재 테스트는 추가 설치 없이 표준 라이브러리 `unittest`로 실행합니다.
+
+```powershell
+python -m unittest discover -s tests
+```
 
 ## 문서 구조
 
@@ -68,23 +101,16 @@ docs/
 
 ## 구현 방향
 
-구현 후보 플랫폼은 다음을 기준으로 정리했습니다.
-
 - API 서버: FastAPI
-- UI: Streamlit 또는 FastAPI Swagger UI
-- Vector DB: Chroma
-- 문서 파싱: pypdf, python-docx, python-pptx
 - 구조화 검증: Pydantic
-- 평가: RAGAS 지표, 자체 Gold Set, 사람 평가 루브릭
-
-## 현재 상태
-
-- 서비스 기획 문서 작성 완료
-- KOSENA 산출물 7종 작성 완료
-- 구현명세서, 데이터셋 선정 계획서, 검증 프로토콜 작성 완료
-- 실제 애플리케이션 코드는 아직 작성 전 단계
+- 문서 처리: pypdf, python-docx, python-pptx 순차 적용 예정
+- Vector DB: Chroma 적용 예정
+- UI: Swagger UI 우선, 이후 Streamlit 확장
+- 평가: 자체 Gold Set과 사람 평가 루브릭 우선, 이후 RAGAS 검토
 
 ## 작성자
 
 - Name: RyuGernwoo
 - Email: qesadgun@gmail.com
+
+
