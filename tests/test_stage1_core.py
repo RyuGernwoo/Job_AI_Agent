@@ -2,6 +2,7 @@
 import unittest
 from pathlib import Path
 
+import fitz
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,15 @@ def sample_project_create() -> ProjectCreate:
             )
         ],
     )
+
+
+def make_pdf_bytes(text: str) -> bytes:
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), text)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    return pdf_bytes
 
 
 class Stage1CoreTests(unittest.TestCase):
@@ -130,6 +140,23 @@ class Stage1CoreTests(unittest.TestCase):
         self.assertEqual(body["source_name"], "python_tutorial_sample.md")
         self.assertGreaterEqual(body["chunk_count"], 1)
         self.assertEqual(body["chunks"][0]["chunk_id"], f"{body['document_id']}-p000-c001")
+
+    def test_fastapi_material_upload_extracts_pdf_text(self):
+        client = TestClient(create_app())
+        created = client.post("/api/projects", json=sample_project_create().model_dump())
+        project_id = created.json()["project_id"]
+        pdf_bytes = make_pdf_bytes("PDF functions return output for training materials.")
+
+        upload = client.post(
+            f"/api/projects/{project_id}/materials",
+            files={"file": ("sample.pdf", pdf_bytes, "application/pdf")},
+        )
+
+        self.assertEqual(upload.status_code, 200)
+        body = upload.json()
+        self.assertEqual(body["source_type"], "pdf")
+        self.assertEqual(body["source_name"], "sample.pdf")
+        self.assertIn("PDF functions return output", body["chunks"][0]["text"])
 
     def test_fastapi_retrieve_returns_uploaded_chunks_by_query(self):
         client = TestClient(create_app())

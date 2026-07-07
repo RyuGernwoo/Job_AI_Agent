@@ -1,4 +1,4 @@
-[project]
+﻿[project]
 name = "lectureops-agent"
 version = "0.1.0"
 description = "Job training lecture operation assistant AI agent MVP"
@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.110",
     "pydantic>=2.0",
     "python-multipart>=0.0.9",
+    "PyMuPDF>=1.24",
     "uvicorn[standard]>=0.29",
 ]
 
@@ -17,3 +18,5 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+

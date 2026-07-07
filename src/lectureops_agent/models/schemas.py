@@ -64,7 +64,7 @@ class MaterialIngestResult(BaseModel):
     project_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     source_name: str = Field(min_length=1)
-    source_type: Literal["txt", "md"]
+    source_type: Literal["pdf", "txt", "md"]
     chunk_count: int = Field(ge=1)
     chunks: list[MaterialChunk] = Field(min_length=1)
 
