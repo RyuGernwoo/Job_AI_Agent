@@ -1,0 +1,67 @@
+﻿import sys
+import unittest
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from lectureops_agent.app.main import create_app
+from lectureops_agent.models.schemas import MaterialChunk, NCSUnit, ProjectCreate
+
+
+def sample_project_create() -> ProjectCreate:
+    return ProjectCreate(
+        course_title="Generative AI Python Basics",
+        lesson_title="Python functions and prompt automation practice",
+        learner_profile="Job training learners with basic Python experience",
+        learning_objectives=["Explain function inputs and return values."],
+        ncs_units=[NCSUnit(unit_code="MVP-NCS-001", unit_name="AI basics", elements=[])],
+    )
+
+
+class ExportApiTests(unittest.TestCase):
+    def test_fastapi_export_docx_requires_approved_package(self):
+        client = TestClient(create_app())
+        created = client.post("/api/projects", json=sample_project_create().model_dump())
+        project_id = created.json()["project_id"]
+        chunk = MaterialChunk(
+            chunk_id="doc001-p000-c001",
+            project_id=project_id,
+            document_id="doc001",
+            source_name="sample.pdf",
+            source_type="pdf",
+            page=None,
+            text="A function can receive input and return output.",
+            metadata={"license": "PSF License"},
+        )
+        generated = client.post(
+            f"/api/projects/{project_id}/generate",
+            json={"retrieved_chunks": [chunk.model_dump()]},
+        )
+        package_id = generated.json()["package_id"]
+
+        rejected = client.get(f"/api/packages/{package_id}/export.docx")
+        self.assertEqual(rejected.status_code, 409)
+
+        client.patch(
+            f"/api/packages/{package_id}/review",
+            json={"status": "reviewed", "reviewer_notes": "Reviewed."},
+        )
+        client.patch(
+            f"/api/packages/{package_id}/review",
+            json={"status": "approved", "reviewer_notes": "Approved."},
+        )
+
+        exported = client.get(f"/api/packages/{package_id}/export.docx")
+        self.assertEqual(exported.status_code, 200)
+        self.assertEqual(
+            exported.headers["content-type"],
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        self.assertTrue(exported.content.startswith(b"PK"))
+
+
+if __name__ == "__main__":
+    unittest.main()

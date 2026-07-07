@@ -1,4 +1,8 @@
-﻿from fastapi import FastAPI, File, HTTPException, UploadFile
+﻿import tempfile
+from pathlib import Path
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from lectureops_agent.models.schemas import (
     GenerateRequest,
@@ -11,6 +15,7 @@ from lectureops_agent.models.schemas import (
     ReviewPatch,
 )
 from lectureops_agent.services.chunk_service import chunk_text
+from lectureops_agent.services.export_service import export_lesson_package_docx
 from lectureops_agent.services.generation_service import generate_lesson_package
 from lectureops_agent.services.parser_service import decode_text_material
 from lectureops_agent.services.review_service import apply_review_patch
@@ -18,6 +23,7 @@ from lectureops_agent.services.vector_store import InMemoryVectorStore, VectorSt
 
 CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 def create_app(vector_store: VectorStore | None = None) -> FastAPI:
@@ -114,6 +120,22 @@ def create_app(vector_store: VectorStore | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         packages[package_id] = updated
         return updated
+
+    @app.get("/api/packages/{package_id}/export.docx")
+    def export_docx(package_id: str) -> FileResponse:
+        package = packages.get(package_id)
+        if package is None:
+            raise HTTPException(status_code=404, detail="package not found")
+        output_path = Path(tempfile.gettempdir()) / "lectureops_agent_exports" / f"{package_id}.docx"
+        try:
+            export_lesson_package_docx(package=package, output_path=output_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return FileResponse(
+            path=output_path,
+            media_type=DOCX_MEDIA_TYPE,
+            filename=f"{package_id}.docx",
+        )
 
     return app
 
