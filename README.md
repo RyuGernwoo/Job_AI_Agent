@@ -31,9 +31,10 @@
 - mock generation service 기반 교안·실습·평가 패키지 생성
 - `draft -> reviewed -> approved` 검토 상태 전환
 - approved 패키지 DOCX export endpoint
+- Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
 
-아직 구현하지 않은 범위는 실제 Chroma 런타임 검증, 실제 LLM provider, Streamlit UI, RAGAS 평가 자동화입니다.
+아직 구현하지 않은 범위는 실제 Chroma 런타임 검증, 실제 LLM provider, RAGAS 평가 자동화입니다.
 
 ## 실행 방법
 
@@ -45,6 +46,7 @@ python -m venv .venv
 pip install -r requirements.txt
 $env:PYTHONPATH="src"
 python -m uvicorn lectureops_agent.app.main:app --reload
+python -m streamlit run src/lectureops_agent/ui/streamlit_app.py --server.port 8501
 ```
 
 서버 실행 후 다음 주소에서 Swagger UI를 확인합니다.
@@ -115,6 +117,7 @@ docs/
 
 - Name: RyuGernwoo
 - Email: qesadgun@gmail.com
+
 
 
 
