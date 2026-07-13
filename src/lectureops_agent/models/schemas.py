@@ -124,6 +124,18 @@ class LessonPackage(BaseModel):
     assessment: Assessment
 
 
+class GenerationLog(BaseModel):
+    log_id: str = Field(min_length=1)
+    package_id: str = Field(min_length=1)
+    project_id: str = Field(min_length=1)
+    provider_name: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    response_text: str = Field(min_length=1)
+    citation_ids: list[str] = Field(min_length=1)
+    retrieved_chunk_ids: list[str] = Field(min_length=1)
+    created_at: datetime
+
+
 class GenerateRequest(BaseModel):
     retrieved_chunks: list[MaterialChunk] = Field(min_length=1)
 

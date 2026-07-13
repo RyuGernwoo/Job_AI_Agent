@@ -1,6 +1,6 @@
 # KOSENA 06. 개발 로드맵·PRD
 
-프로젝트명: **LectureOps Agent MVP**  
+프로젝트명: **LessonPack AI MVP**
 목표: 한 달 안에 1개 차시 강의 패키지를 생성·검수·다운로드할 수 있는 MVP를 완성한다.
 
 ---
@@ -9,7 +9,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| Product | LectureOps Agent MVP |
+| Product | LessonPack AI MVP |
 | Target User | 직업훈련 강사, 교육 운영 담당자 |
 | Problem | 교안·실습·평가 산출물을 반복 작성하고, NCS·교재 근거를 수작업으로 맞춰야 함 |
 | Goal | 1개 차시 강의 패키지를 근거 기반으로 생성하고, 강사가 검수 후 DOCX로 저장 |
@@ -117,7 +117,7 @@
 | PATCH | `/api/packages/{package_id}/review` | 강사 수정·승인 |
 | GET | `/api/packages/{package_id}/export.docx` | DOCX 다운로드 |
 | GET | `/api/packages/{package_id}/export.pptx` | PPTX 다운로드, 선택 기능 |
-| GET | `/api/packages/{package_id}/log` | 생성 로그 조회 |
+| GET | `/api/packages/{package_id}/generation-log` | 생성 로그 조회 |
 
 ---
 

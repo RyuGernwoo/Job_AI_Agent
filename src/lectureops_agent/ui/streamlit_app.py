@@ -1,4 +1,4 @@
-﻿"""Streamlit UI for the LectureOps Agent MVP."""
+﻿"""Streamlit UI for the LessonPack AI MVP."""
 
 from pathlib import Path
 import sys
@@ -22,8 +22,8 @@ from lectureops_agent.ui.workflow import (
 
 
 def main() -> None:
-    st.set_page_config(page_title="LectureOps Agent MVP", layout="wide")
-    st.title("LectureOps Agent MVP")
+    st.set_page_config(page_title="LessonPack AI MVP", layout="wide")
+    st.title("LessonPack AI MVP")
 
     if "package" not in st.session_state:
         st.session_state.package = None

@@ -1,6 +1,6 @@
 # KOSENA 02. Lean Canvas
 
-프로젝트명: **LectureOps Agent MVP**  
+프로젝트명: **LessonPack AI MVP**
 서비스 한 줄 정의: 교재와 NCS를 근거로 1개 차시의 교안·실습·평가 초안을 생성하고, 강사가 검수 후 문서로 내려받는 RAG 기반 강의 운영 보조 Agent.
 
 ---

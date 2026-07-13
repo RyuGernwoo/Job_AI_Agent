@@ -1,7 +1,12 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from lectureops_agent.models.schemas import (
     Assessment,
+    GenerationLog,
     LessonPackage,
     LessonPlan,
     LectureFlowItem,
@@ -12,6 +17,13 @@ from lectureops_agent.models.schemas import (
     Practice,
     Project,
 )
+from lectureops_agent.services.llm_provider import LLMProvider, MockLLMProvider
+
+
+@dataclass(frozen=True)
+class GeneratedLessonPackageResult:
+    package: LessonPackage
+    log: GenerationLog
 
 
 def generate_lesson_package(
@@ -19,14 +31,89 @@ def generate_lesson_package(
     project: Project,
     retrieved_chunks: list[MaterialChunk],
     package_id: str | None = None,
+    llm_provider: LLMProvider | None = None,
 ) -> LessonPackage:
+    return generate_lesson_package_with_log(
+        project=project,
+        retrieved_chunks=retrieved_chunks,
+        package_id=package_id,
+        llm_provider=llm_provider,
+    ).package
+
+
+def generate_lesson_package_with_log(
+    *,
+    project: Project,
+    retrieved_chunks: list[MaterialChunk],
+    package_id: str | None = None,
+    llm_provider: LLMProvider | None = None,
+) -> GeneratedLessonPackageResult:
     if not retrieved_chunks:
         raise ValueError("retrieved_chunks must not be empty")
 
+    provider = llm_provider or MockLLMProvider()
+    prompt = build_generation_prompt(project=project, retrieved_chunks=retrieved_chunks)
+    provider_response = provider.generate(prompt=prompt).strip()
+    if not provider_response:
+        raise ValueError("llm provider returned empty response")
+
+    package_id = package_id or str(uuid4())
+    package = _build_package(
+        project=project,
+        retrieved_chunks=retrieved_chunks,
+        package_id=package_id,
+        provider_response=provider_response,
+    )
+    citation_ids = _citation_ids(retrieved_chunks)
+    log = GenerationLog(
+        log_id=str(uuid4()),
+        package_id=package.package_id,
+        project_id=project.project_id,
+        provider_name=provider.name,
+        prompt=prompt,
+        response_text=provider_response,
+        citation_ids=citation_ids,
+        retrieved_chunk_ids=[chunk.chunk_id for chunk in retrieved_chunks],
+        created_at=datetime.now(timezone.utc),
+    )
+    return GeneratedLessonPackageResult(package=package, log=log)
+
+
+def build_generation_prompt(*, project: Project, retrieved_chunks: list[MaterialChunk]) -> str:
+    objective_text = "\n".join(f"- {objective}" for objective in project.learning_objectives)
+    ncs_text = "\n".join(
+        f"- {unit.unit_code} {unit.unit_name}: {', '.join(unit.elements) if unit.elements else '세부 요소 미기재'}"
+        for unit in project.ncs_units
+    )
+    evidence_text = "\n".join(f"[{chunk.chunk_id}] {chunk.text}" for chunk in retrieved_chunks)
+    return (
+        "LessonPack AI generation request\n"
+        f"Course: {project.course_title}\n"
+        f"Lesson: {project.lesson_title}\n"
+        f"Learners: {project.learner_profile}\n"
+        "Learning objectives:\n"
+        f"{objective_text}\n"
+        "NCS units:\n"
+        f"{ncs_text or '- NCS unit not provided'}\n"
+        "Retrieved evidence chunks:\n"
+        f"{evidence_text}\n"
+        "Create a grounded lesson plan, practice scenario, and assessment draft. "
+        "Every core item must stay traceable to citation IDs and require instructor review."
+    )
+
+
+def _build_package(
+    *,
+    project: Project,
+    retrieved_chunks: list[MaterialChunk],
+    package_id: str,
+    provider_response: str,
+) -> LessonPackage:
     primary_chunk = retrieved_chunks[0]
-    citation_ids = [primary_chunk.chunk_id]
+    citation_ids = _citation_ids(retrieved_chunks)
     objective_text = " / ".join(project.learning_objectives)
     evidence_summary = primary_chunk.text[:120]
+    provider_summary = provider_response[:180]
 
     lesson_plan = LessonPlan(
         title=project.lesson_title,
@@ -41,7 +128,10 @@ def generate_lesson_package(
             LectureFlowItem(
                 section="전개",
                 duration_min=None,
-                content=f"핵심 개념을 근거 자료에 맞춰 설명한다. 근거 요약: {evidence_summary}",
+                content=(
+                    "핵심 개념을 근거 자료와 provider 생성 요약에 맞춰 설명한다. "
+                    f"근거 요약: {evidence_summary} / 생성 요약: {provider_summary}"
+                ),
                 citation_ids=citation_ids,
             ),
             LectureFlowItem(
@@ -145,10 +235,14 @@ def generate_lesson_package(
     )
 
     return LessonPackage(
-        package_id=package_id or str(uuid4()),
+        package_id=package_id,
         project_id=project.project_id,
         status=PackageStatus.DRAFT,
         lesson_plan=lesson_plan,
         practice=practice,
         assessment=assessment,
     )
+
+
+def _citation_ids(chunks: list[MaterialChunk]) -> list[str]:
+    return [chunks[0].chunk_id]

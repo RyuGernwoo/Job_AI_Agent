@@ -1,4 +1,4 @@
-"""LectureOps Agent MVP package."""
+"""LessonPack AI MVP package."""
 
 __all__ = ["__version__"]
 

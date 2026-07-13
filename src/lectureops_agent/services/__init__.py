@@ -1,1 +1,1 @@
-"""Application services for LectureOps Agent."""
+"""Application services for LessonPack AI."""

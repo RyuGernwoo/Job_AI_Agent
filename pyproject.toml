@@ -1,7 +1,7 @@
 ﻿[project]
-name = "lectureops-agent"
+name = "lessonpack-ai"
 version = "0.1.0"
-description = "Job training lecture operation assistant AI agent MVP"
+description = "Job training lesson package generation assistant AI agent MVP"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,8 +21,3 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-
-
-
-

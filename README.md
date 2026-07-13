@@ -1,6 +1,6 @@
-# Job AI Agent
+# LessonPack AI
 
-직업훈련 강의 운영 보조 AI Agent MVP 저장소입니다.
+직업훈련 강의 패키지 생성 보조 AI Agent MVP 저장소입니다.
 
 이 프로젝트는 직업훈련 강사가 강의 준비 과정에서 반복적으로 작성하는 교안, 실습 과제, 평가 문항 초안을 AI로 생성하고, 사람이 검토한 뒤 문서 산출물로 저장하는 서비스를 목표로 합니다. 현재 저장소는 기획 문서와 1단계 FastAPI 구현 골격을 함께 포함합니다.
 
@@ -22,6 +22,7 @@
 - `POST /api/projects/{project_id}/retrieve`
 - `POST /api/projects/{project_id}/generate`
 - `GET /api/packages/{package_id}`
+- `GET /api/packages/{package_id}/generation-log`
 - `PATCH /api/packages/{package_id}/review`
 - `GET /api/packages/{package_id}/export.docx`
 - Pydantic 기반 Project, MaterialChunk, LessonPackage schema
@@ -29,13 +30,14 @@
 - 업로드된 chunk 대상 in-memory keyword retrieval
 - Chroma 확장을 위한 VectorStore 경계
 - Chroma PersistentClient 런타임 검증
-- mock generation service 기반 교안·실습·평가 패키지 생성
+- mock LLM provider 기반 교안·실습·평가 패키지 생성
 - `draft -> reviewed -> approved` 검토 상태 전환
 - approved 패키지 DOCX export endpoint
+- generation log 조회 endpoint
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
 
-아직 구현하지 않은 범위는 실제 LLM provider, RAGAS 평가 자동화입니다.
+아직 구현하지 않은 범위는 외부 LLM provider 연결, RAGAS 평가 자동화, PPTX export입니다.
 
 ## 실행 방법
 
@@ -51,6 +53,7 @@ $env:PYTHONPATH="src"
 $env:LECTUREOPS_VECTOR_STORE="chroma"
 $env:LECTUREOPS_CHROMA_PATH="chroma_db"
 $env:LECTUREOPS_CHROMA_COLLECTION="lectureops_chunks"
+$env:LESSONPACK_LLM_PROVIDER="mock"
 
 python -m uvicorn lectureops_agent.app.main:app --reload
 python -m streamlit run src/lectureops_agent/ui/streamlit_app.py --server.port 8501
@@ -117,6 +120,7 @@ docs/
 - 구조화 검증: Pydantic
 - 문서 처리: PyMuPDF 기반 PDF 추출, python-docx DOCX 산출, python-pptx는 추후 적용
 - Vector DB: InMemory 기본값, Chroma PersistentClient adapter 검증 완료
+- LLM: provider adapter 경계와 mock provider, generation log 우선
 - UI: Swagger UI 우선, 이후 Streamlit 확장
 - 평가: 자체 Gold Set과 사람 평가 루브릭 우선, 이후 RAGAS 검토
 

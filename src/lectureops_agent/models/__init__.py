@@ -1,1 +1,1 @@
-"""Data models for LectureOps Agent."""
+"""Data models for LessonPack AI."""

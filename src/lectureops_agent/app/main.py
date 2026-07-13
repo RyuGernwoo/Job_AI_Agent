@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 
 from lectureops_agent.models.schemas import (
     GenerateRequest,
+    GenerationLog,
     LessonPackage,
     MaterialChunk,
     MaterialIngestResult,
@@ -16,7 +17,8 @@ from lectureops_agent.models.schemas import (
 )
 from lectureops_agent.services.chunk_service import chunk_text
 from lectureops_agent.services.export_service import export_lesson_package_docx
-from lectureops_agent.services.generation_service import generate_lesson_package
+from lectureops_agent.services.generation_service import generate_lesson_package_with_log
+from lectureops_agent.services.llm_provider import LLMProvider, create_llm_provider_from_env
 from lectureops_agent.services.parser_service import decode_text_material
 from lectureops_agent.services.review_service import apply_review_patch
 from lectureops_agent.services.vector_store import VectorStore, create_vector_store_from_env
@@ -26,20 +28,22 @@ CHUNK_OVERLAP_CHARS = 120
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
-def create_app(vector_store: VectorStore | None = None) -> FastAPI:
+def create_app(vector_store: VectorStore | None = None, llm_provider: LLMProvider | None = None) -> FastAPI:
     app = FastAPI(
-        title="LectureOps Agent",
-        description="Job training lecture operation assistant AI Agent MVP",
+        title="LessonPack AI",
+        description="Job training lesson package generation assistant MVP",
         version="0.1.0",
     )
     projects: dict[str, Project] = {}
     vector_store = vector_store or create_vector_store_from_env()
+    llm_provider = llm_provider or create_llm_provider_from_env()
     project_document_counts: dict[str, int] = {}
     packages: dict[str, LessonPackage] = {}
+    generation_logs: dict[str, GenerationLog] = {}
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "service": "lectureops-agent"}
+        return {"status": "ok", "service": "lessonpack-ai"}
 
     @app.post("/api/projects", response_model=Project)
     def create_project(payload: ProjectCreate) -> Project:
@@ -98,9 +102,14 @@ def create_app(vector_store: VectorStore | None = None) -> FastAPI:
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
 
-        package = generate_lesson_package(project=project, retrieved_chunks=payload.retrieved_chunks)
-        packages[package.package_id] = package
-        return package
+        result = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=payload.retrieved_chunks,
+            llm_provider=llm_provider,
+        )
+        packages[result.package.package_id] = result.package
+        generation_logs[result.package.package_id] = result.log
+        return result.package
 
     @app.get("/api/packages/{package_id}", response_model=LessonPackage)
     def get_package(package_id: str) -> LessonPackage:
@@ -108,6 +117,13 @@ def create_app(vector_store: VectorStore | None = None) -> FastAPI:
         if package is None:
             raise HTTPException(status_code=404, detail="package not found")
         return package
+
+    @app.get("/api/packages/{package_id}/generation-log", response_model=GenerationLog)
+    def get_generation_log(package_id: str) -> GenerationLog:
+        log = generation_logs.get(package_id)
+        if log is None:
+            raise HTTPException(status_code=404, detail="generation log not found")
+        return log
 
     @app.patch("/api/packages/{package_id}/review", response_model=LessonPackage)
     def review_package(package_id: str, payload: ReviewPatch) -> LessonPackage:
@@ -126,7 +142,7 @@ def create_app(vector_store: VectorStore | None = None) -> FastAPI:
         package = packages.get(package_id)
         if package is None:
             raise HTTPException(status_code=404, detail="package not found")
-        output_path = Path(tempfile.gettempdir()) / "lectureops_agent_exports" / f"{package_id}.docx"
+        output_path = Path(tempfile.gettempdir()) / "lessonpack_ai_exports" / f"{package_id}.docx"
         try:
             export_lesson_package_docx(package=package, output_path=output_path)
         except ValueError as exc:
