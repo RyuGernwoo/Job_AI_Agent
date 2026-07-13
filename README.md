@@ -1,4 +1,4 @@
-﻿# Job AI Agent
+# Job AI Agent
 
 직업훈련 강의 운영 보조 AI Agent MVP 저장소입니다.
 
@@ -13,7 +13,7 @@
 
 ## 현재 구현 상태
 
-2026-07-07 기준 구현된 범위는 다음과 같습니다.
+2026-07-13 기준 구현된 범위는 다음과 같습니다.
 
 - FastAPI 앱 skeleton
 - `GET /health`
@@ -28,13 +28,14 @@
 - TXT/MD/PDF 업로드 텍스트 추출 및 chunk 생성
 - 업로드된 chunk 대상 in-memory keyword retrieval
 - Chroma 확장을 위한 VectorStore 경계
+- Chroma PersistentClient 런타임 검증
 - mock generation service 기반 교안·실습·평가 패키지 생성
 - `draft -> reviewed -> approved` 검토 상태 전환
 - approved 패키지 DOCX export endpoint
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
 
-아직 구현하지 않은 범위는 실제 Chroma 런타임 검증, 실제 LLM provider, RAGAS 평가 자동화입니다.
+아직 구현하지 않은 범위는 실제 LLM provider, RAGAS 평가 자동화입니다.
 
 ## 실행 방법
 
@@ -45,6 +46,12 @@ python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 $env:PYTHONPATH="src"
+
+# Chroma 사용 시 서버 실행 전에 명시합니다. InMemory 기본 실행에서는 생략합니다.
+$env:LECTUREOPS_VECTOR_STORE="chroma"
+$env:LECTUREOPS_CHROMA_PATH="chroma_db"
+$env:LECTUREOPS_CHROMA_COLLECTION="lectureops_chunks"
+
 python -m uvicorn lectureops_agent.app.main:app --reload
 python -m streamlit run src/lectureops_agent/ui/streamlit_app.py --server.port 8501
 ```
@@ -108,8 +115,8 @@ docs/
 
 - API 서버: FastAPI
 - 구조화 검증: Pydantic
-- 문서 처리: pypdf, python-docx, python-pptx 순차 적용 예정
-- Vector DB: Chroma 적용 예정
+- 문서 처리: PyMuPDF 기반 PDF 추출, python-docx DOCX 산출, python-pptx는 추후 적용
+- Vector DB: InMemory 기본값, Chroma PersistentClient adapter 검증 완료
 - UI: Swagger UI 우선, 이후 Streamlit 확장
 - 평가: 자체 Gold Set과 사람 평가 루브릭 우선, 이후 RAGAS 검토
 
@@ -117,10 +124,3 @@ docs/
 
 - Name: RyuGernwoo
 - Email: qesadgun@gmail.com
-
-
-
-
-
-
-

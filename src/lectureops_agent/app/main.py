@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -19,7 +19,7 @@ from lectureops_agent.services.export_service import export_lesson_package_docx
 from lectureops_agent.services.generation_service import generate_lesson_package
 from lectureops_agent.services.parser_service import decode_text_material
 from lectureops_agent.services.review_service import apply_review_patch
-from lectureops_agent.services.vector_store import InMemoryVectorStore, VectorStore
+from lectureops_agent.services.vector_store import VectorStore, create_vector_store_from_env
 
 CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
@@ -33,7 +33,7 @@ def create_app(vector_store: VectorStore | None = None) -> FastAPI:
         version="0.1.0",
     )
     projects: dict[str, Project] = {}
-    vector_store = vector_store or InMemoryVectorStore()
+    vector_store = vector_store or create_vector_store_from_env()
     project_document_counts: dict[str, int] = {}
     packages: dict[str, LessonPackage] = {}
 
