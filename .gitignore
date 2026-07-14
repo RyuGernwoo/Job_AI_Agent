@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -61,4 +61,3 @@ CLAUDE.md
 CURRENT_SESSION.md
 SESSION_INDEX.md
 session-dashboard.html
-

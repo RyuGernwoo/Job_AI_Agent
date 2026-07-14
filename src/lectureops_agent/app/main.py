@@ -1,9 +1,11 @@
+import os
 import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from lectureops_agent.config import LessonPackConfig, load_config
 from lectureops_agent.models.schemas import (
     GenerateRequest,
     GenerationLog,
@@ -18,7 +20,7 @@ from lectureops_agent.models.schemas import (
 from lectureops_agent.services.chunk_service import chunk_text
 from lectureops_agent.services.export_service import export_lesson_package_docx
 from lectureops_agent.services.generation_service import generate_lesson_package_with_log
-from lectureops_agent.services.llm_provider import LLMProvider, create_llm_provider_from_env
+from lectureops_agent.services.llm_provider import LLMProvider, create_llm_provider_from_config, create_llm_provider_from_env
 from lectureops_agent.services.parser_service import decode_text_material
 from lectureops_agent.services.review_service import apply_review_patch
 from lectureops_agent.services.vector_store import VectorStore, create_vector_store_from_env
@@ -28,15 +30,23 @@ CHUNK_OVERLAP_CHARS = 120
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
-def create_app(vector_store: VectorStore | None = None, llm_provider: LLMProvider | None = None) -> FastAPI:
+def create_app(
+    vector_store: VectorStore | None = None,
+    llm_provider: LLMProvider | None = None,
+    app_config: LessonPackConfig | None = None,
+) -> FastAPI:
     app = FastAPI(
         title="LessonPack AI",
         description="Job training lesson package generation assistant MVP",
         version="0.1.0",
     )
+    config = app_config or _load_config_from_env()
+    chunk_size_chars = config.chunk_size_chars if config else CHUNK_SIZE_CHARS
+    chunk_overlap_chars = config.chunk_overlap_chars if config else CHUNK_OVERLAP_CHARS
     projects: dict[str, Project] = {}
     vector_store = vector_store or create_vector_store_from_env()
-    llm_provider = llm_provider or create_llm_provider_from_env()
+    if llm_provider is None:
+        llm_provider = create_llm_provider_from_config(config) if config else create_llm_provider_from_env()
     project_document_counts: dict[str, int] = {}
     packages: dict[str, LessonPackage] = {}
     generation_logs: dict[str, GenerationLog] = {}
@@ -72,8 +82,8 @@ def create_app(vector_store: VectorStore | None = None, llm_provider: LLMProvide
             source_name=file.filename or "uploaded.txt",
             source_type=source_type,
             text=text,
-            chunk_size_chars=CHUNK_SIZE_CHARS,
-            chunk_overlap_chars=CHUNK_OVERLAP_CHARS,
+            chunk_size_chars=chunk_size_chars,
+            chunk_overlap_chars=chunk_overlap_chars,
             metadata={"content_type": file.content_type or "application/octet-stream"},
         )
         vector_store.upsert(project_id=project_id, chunks=chunks)
@@ -155,5 +165,10 @@ def create_app(vector_store: VectorStore | None = None, llm_provider: LLMProvide
 
     return app
 
+def _load_config_from_env() -> LessonPackConfig | None:
+    config_path = os.getenv("LESSONPACK_CONFIG")
+    if not config_path:
+        return None
+    return load_config(config_path)
 
 app = create_app()

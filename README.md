@@ -13,7 +13,7 @@
 
 ## 현재 구현 상태
 
-2026-07-13 기준 구현된 범위는 다음과 같습니다.
+2026-07-14 기준 구현된 범위는 다음과 같습니다.
 
 - FastAPI 앱 skeleton
 - `GET /health`
@@ -34,10 +34,12 @@
 - `draft -> reviewed -> approved` 검토 상태 전환
 - approved 패키지 DOCX export endpoint
 - generation log 조회 endpoint
+- `config.example.yaml` 기반 명시 설정 로더
+- `http_chat` 외부 LLM provider adapter
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
 
-아직 구현하지 않은 범위는 외부 LLM provider 연결, RAGAS 평가 자동화, PPTX export입니다.
+아직 구현하지 않은 범위는 실제 API 키 기반 LLM 실증, RAGAS 평가 자동화, PPTX export입니다.
 
 ## 실행 방법
 
@@ -49,11 +51,12 @@ python -m venv .venv
 pip install -r requirements.txt
 $env:PYTHONPATH="src"
 
-# Chroma 사용 시 서버 실행 전에 명시합니다. InMemory 기본 실행에서는 생략합니다.
-$env:LECTUREOPS_VECTOR_STORE="chroma"
-$env:LECTUREOPS_CHROMA_PATH="chroma_db"
-$env:LECTUREOPS_CHROMA_COLLECTION="lectureops_chunks"
-$env:LESSONPACK_LLM_PROVIDER="mock"
+# 권장: config.example.yaml을 config.yaml로 복사한 뒤 명시 설정으로 실행합니다.
+Copy-Item config.example.yaml config.yaml
+$env:LESSONPACK_CONFIG="config.yaml"
+
+# http_chat provider 사용 시 config.yaml의 llm.api_key_env에 맞춰 API key를 설정합니다.
+# $env:LESSONPACK_HTTP_API_KEY="..."
 
 python -m uvicorn lectureops_agent.app.main:app --reload
 python -m streamlit run src/lectureops_agent/ui/streamlit_app.py --server.port 8501
@@ -120,7 +123,7 @@ docs/
 - 구조화 검증: Pydantic
 - 문서 처리: PyMuPDF 기반 PDF 추출, python-docx DOCX 산출, python-pptx는 추후 적용
 - Vector DB: InMemory 기본값, Chroma PersistentClient adapter 검증 완료
-- LLM: provider adapter 경계와 mock provider, generation log 우선
+- LLM: provider adapter 경계, mock provider, `http_chat` provider, generation log 우선
 - UI: Swagger UI 우선, 이후 Streamlit 확장
 - 평가: 자체 Gold Set과 사람 평가 루브릭 우선, 이후 RAGAS 검토
 
