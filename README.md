@@ -40,6 +40,7 @@
 - `data/processed/chunks.jsonl` 로더
 - processed dataset VectorStore ingest 스크립트
 - retrieval Gold Set 기반 검색 품질 평가 스크립트
+- generation Gold Set 기반 생성 품질 평가 스크립트
 - 합성 Gold Set과 사람 평가 루브릭 초안
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
@@ -134,6 +135,14 @@ python scripts\evaluate_retrieval.py --top-k 3 --min-hit-rate 1.0 --report outpu
 `--min-hit-rate`를 지정하면 기준 미달 시 종료 코드 `1`로 실패 처리할 수 있습니다.
 현재 MVP Gold Set 기준 baseline은 top-3 hit rate `1.0`입니다.
 
+generation Gold Set 기준 생성 품질은 다음 명령으로 평가합니다.
+
+```powershell
+python scripts\evaluate_generation.py --min-case-pass-rate 1.0 --report outputs\eval\generation_report.json
+```
+
+현재 mock provider 기준 baseline은 case pass rate `1.0`입니다.
+
 ## 문서 구조
 
 ```text
@@ -186,7 +195,7 @@ docs/
 - 검색: 본문, source metadata, section, tags, 한국어/영어 개념 동의어 기반 keyword scoring
 - LLM: provider adapter 경계, mock provider, `http_chat` provider, generation log 우선
 - UI: Swagger UI 우선, 이후 Streamlit 확장
-- 평가: 자체 Gold Set, retrieval hit rate, 사람 평가 루브릭 우선, 이후 RAGAS 검토
+- 평가: 자체 Gold Set, retrieval hit rate, generation case pass rate, 사람 평가 루브릭 우선, 이후 RAGAS 검토
 
 ## 작성자
 

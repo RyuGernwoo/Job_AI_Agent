@@ -114,6 +114,8 @@ def _build_package(
     objective_text = " / ".join(project.learning_objectives)
     evidence_summary = primary_chunk.text[:120]
     provider_summary = provider_response[:180]
+    practice_keywords = _practice_keywords(project=project, retrieved_chunks=retrieved_chunks)
+    practice_keyword_text = ", ".join(practice_keywords)
 
     lesson_plan = LessonPlan(
         title=project.lesson_title,
@@ -144,17 +146,20 @@ def _build_package(
     )
 
     practice = Practice(
-        scenario=f"{project.lesson_title} 내용을 활용해 직업훈련 수업용 자동화 예제를 만든다.",
+        scenario=(
+            f"실습 시나리오: {project.lesson_title} 내용을 활용해 직업훈련 수업용 자동화 예제를 만든다. "
+            f"핵심 실습 요소는 {practice_keyword_text}이다."
+        ),
         steps=[
-            "제공된 근거 자료에서 핵심 개념을 3개 추출한다.",
-            "추출한 개념을 활용해 간단한 실습 코드를 작성한다.",
-            "작성한 결과를 학습 목표와 연결해 설명한다.",
+            f"수행 절차: 제공된 근거 자료에서 핵심 개념을 3개 추출한다. 포함할 요소: {practice_keyword_text}.",
+            "수행 절차: 추출한 개념을 활용해 간단한 실습 코드를 작성한다.",
+            "수행 절차: 작성한 결과를 학습 목표와 연결해 설명한다.",
         ],
-        submission="실습 코드와 실행 결과, 핵심 개념 설명 3문장",
+        submission=f"제출물: 실습 코드와 실행 결과, 핵심 개념 설명 3문장. 반영 요소: {practice_keyword_text}.",
         rubric=[
-            "근거 자료의 개념을 정확히 반영했다.",
-            "실습 절차가 재현 가능하다.",
-            "학습 목표와 제출물이 연결된다.",
+            f"평가 기준: 근거 자료의 개념을 정확히 반영했다. 확인 요소: {practice_keyword_text}.",
+            "평가 기준: 실습 절차가 재현 가능하다.",
+            "평가 기준: 학습 목표와 제출물이 연결된다.",
         ],
         citation_ids=citation_ids,
     )
@@ -246,3 +251,39 @@ def _build_package(
 
 def _citation_ids(chunks: list[MaterialChunk]) -> list[str]:
     return [chunks[0].chunk_id]
+
+
+def _practice_keywords(*, project: Project, retrieved_chunks: list[MaterialChunk]) -> list[str]:
+    text = _practice_source_text(project=project, retrieved_chunks=retrieved_chunks)
+    keywords = ["실습 시나리오", "수행 절차", "제출물", "평가 기준", "실행 결과"]
+    candidates = [
+        ("라이브러리 활용", ["라이브러리", "library", "pandas", "dataframe", "series"]),
+        ("함수화", ["함수", "function", "def"]),
+        ("list 또는 dictionary", ["list", "dictionary"]),
+        ("정렬 또는 탐색", ["정렬", "탐색", "sort", "search"]),
+    ]
+    for keyword, triggers in candidates:
+        if any(trigger in text for trigger in triggers):
+            keywords.append(keyword)
+    return keywords
+
+
+def _practice_source_text(*, project: Project, retrieved_chunks: list[MaterialChunk]) -> str:
+    values: list[str] = [
+        project.course_title,
+        project.lesson_title,
+        " ".join(project.learning_objectives),
+    ]
+    for unit in project.ncs_units:
+        values.extend([unit.unit_code, unit.unit_name, " ".join(unit.elements)])
+    for chunk in retrieved_chunks:
+        values.extend(
+            [
+                chunk.chunk_id,
+                chunk.document_id,
+                chunk.source_name,
+                chunk.text,
+                " ".join(str(value) for value in chunk.metadata.values()),
+            ]
+        )
+    return " ".join(values).casefold()

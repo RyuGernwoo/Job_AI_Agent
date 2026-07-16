@@ -121,7 +121,24 @@ python scripts\evaluate_retrieval.py --top-k 3 --min-hit-rate 0.5
 
 현재 MVP Gold Set 기준 baseline은 top-3 hit rate `1.0`, MRR `0.95`입니다.
 
-## 9. 품질 기준
+## 9. 생성 평가
+
+generation Gold Set 기준 생성 품질은 다음 명령으로 평가합니다.
+
+```powershell
+python scripts\evaluate_generation.py --min-case-pass-rate 1.0 --report outputs\eval\generation_report.json
+```
+
+주요 지표는 다음과 같습니다.
+
+- `case_pass_rate`: 전체 generation case 중 모든 검증 항목을 통과한 case 비율
+- `average_score`: 교안 섹션, 실습 필수 요소, 평가 문항 수, citation 검증 항목의 평균 점수
+- `missing_practice_items`: 생성 결과에서 누락된 실습 필수 요소
+- `missing_citation_items`: citation이 없거나 검색 chunk ID와 연결되지 않은 항목
+
+현재 mock provider 기준 baseline은 case pass rate `1.0`, average score `1.0`입니다.
+
+## 10. 품질 기준
 
 현재 MVP 기준은 다음과 같습니다.
 
@@ -131,10 +148,11 @@ python scripts\evaluate_retrieval.py --top-k 3 --min-hit-rate 0.5
 - 모든 Gold의 참조 ID는 실제 데이터셋에 존재해야 함
 - NCS 자료는 출처와 교육 목적 활용 조건을 명시해야 함
 - 검색 품질은 top-3 hit rate 1.0을 현재 Gold Set 기준으로 유지합니다.
+- 생성 품질은 mock provider 기준 generation case pass rate 1.0을 유지합니다.
 
-## 10. 현재 한계와 보완 예정
+## 11. 현재 한계와 보완 예정
 
 - 원천 데이터 라이선스 검토는 문서화 수준이며, 자동 판정은 하지 않습니다.
 - 실제 강사 검토 데이터는 아직 없습니다. MVP 실증 단계에서 3명 내외의 사용자 평가를 수집해야 합니다.
 - 검색 평가는 metadata-aware keyword retrieval baseline입니다. 이후 실제 LLM 생성 품질과 citation coverage 평가로 확장합니다.
-- 실제 LLM 생성 품질 평가는 mock이 아닌 API provider 연결 후 수행해야 합니다.
+- 실제 LLM 생성 품질 평가는 `http_chat` provider 연결 후 같은 generation Gold Set으로 추가 수행해야 합니다.
