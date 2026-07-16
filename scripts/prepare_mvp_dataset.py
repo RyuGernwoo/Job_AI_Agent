@@ -55,6 +55,17 @@ RAW_CURRICULUM = RAW / "curriculum"
 RAW_SYNTHETIC = RAW / "synthetic"
 PROCESSED = DATA / "processed"
 GOLD = DATA / "gold"
+CONCEPT_SYNONYMS = {
+    "함수": ["function", "def"],
+    "매개변수": ["parameter", "argument"],
+    "자료구조": ["data-structure", "data structure", "list", "dictionary"],
+    "평가": ["assessment", "rubric"],
+    "객관식": ["assessment", "multiple choice", "mcq"],
+    "스크립트": ["script", "script-language"],
+    "라이브러리": ["library"],
+    "탐색": ["search"],
+    "정렬": ["sort"],
+}
 
 
 PDF_ALIASES = [
@@ -398,7 +409,7 @@ def retrieval_gold_data(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ("q002", "Python 함수의 매개변수와 return 사용을 설명하라", ["return", "parameter"]),
         ("q003", "Python list 메서드와 append, pop을 이용한 실습을 설계하라", ["list", "append"]),
         ("q004", "Python dictionary와 key-value 개념을 설명하라", ["dictionary", "key"]),
-        ("q005", "자료구조 활용 능력과 Python list/dict 실습을 연결하라", ["자료구조", "NCS"]),
+        ("q005", "NCS 자료구조 활용 능력과 Python list/dict 실습을 연결하라", ["자료구조", "NCS"]),
         ("q006", "프로그래밍 언어 활용 NCS와 스크립트 언어 실습을 연결하라", ["스크립트", "NCS"]),
         ("q007", "프로그래밍 언어 응용 NCS와 라이브러리 활용 실습을 연결하라", ["라이브러리", "NCS"]),
         ("q008", "pandas DataFrame 생성과 데이터 분석 기초 실습을 설계하라", ["DataFrame", "pandas"]),
@@ -422,14 +433,41 @@ def retrieval_gold_data(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def find_matching_chunk_ids(chunks: list[dict[str, Any]], concepts: list[str]) -> list[str]:
-    matches: list[str] = []
-    lowered = [(chunk["chunk_id"], chunk["text"].lower(), " ".join(chunk["tags"]).lower()) for chunk in chunks]
-    for chunk_id, text, tags in lowered:
-        if any(concept.lower() in text or concept.lower() in tags for concept in concepts):
-            matches.append(chunk_id)
-    if not matches:
-        matches = [chunks[0]["chunk_id"]]
-    return matches
+    scored: list[tuple[int, int, int, str]] = []
+    for index, chunk in enumerate(chunks):
+        haystack = chunk_searchable_text(chunk)
+        concept_hits = 0
+        occurrence_score = 0
+        for concept in concepts:
+            variants = concept_variants(concept)
+            hits = sum(haystack.count(variant) for variant in variants)
+            if hits:
+                concept_hits += 1
+                occurrence_score += min(hits, 5)
+        if concept_hits:
+            scored.append((concept_hits, occurrence_score, -index, chunk["chunk_id"]))
+
+    if not scored:
+        return [chunks[0]["chunk_id"]]
+    scored.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    return [chunk_id for _, _, _, chunk_id in scored]
+
+
+def concept_variants(concept: str) -> list[str]:
+    variants = [concept, *CONCEPT_SYNONYMS.get(concept, [])]
+    return [variant.casefold().strip() for variant in variants if variant.strip()]
+
+
+def chunk_searchable_text(chunk: dict[str, Any]) -> str:
+    values = [
+        chunk.get("chunk_id", ""),
+        chunk.get("source_id", ""),
+        chunk.get("source_name", ""),
+        chunk.get("section", ""),
+        chunk.get("text", ""),
+        " ".join(str(tag) for tag in chunk.get("tags", [])),
+    ]
+    return " ".join(values).casefold()
 
 
 def curriculum_data() -> dict[str, Any]:

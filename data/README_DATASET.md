@@ -104,7 +104,7 @@ python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-
 retrieval Gold Set 기준 검색 품질은 다음 명령으로 평가합니다.
 
 ```powershell
-python scripts\evaluate_retrieval.py --top-k 3 --report outputs\eval\retrieval_report.json
+python scripts\evaluate_retrieval.py --top-k 3 --min-hit-rate 1.0 --report outputs\eval\retrieval_report.json
 ```
 
 주요 지표는 다음과 같습니다.
@@ -119,6 +119,8 @@ python scripts\evaluate_retrieval.py --top-k 3 --report outputs\eval\retrieval_r
 python scripts\evaluate_retrieval.py --top-k 3 --min-hit-rate 0.5
 ```
 
+현재 MVP Gold Set 기준 baseline은 top-3 hit rate `1.0`, MRR `0.95`입니다.
+
 ## 9. 품질 기준
 
 현재 MVP 기준은 다음과 같습니다.
@@ -128,11 +130,11 @@ python scripts\evaluate_retrieval.py --top-k 3 --min-hit-rate 0.5
 - 생성 Gold Case: 3개 이상
 - 모든 Gold의 참조 ID는 실제 데이터셋에 존재해야 함
 - NCS 자료는 출처와 교육 목적 활용 조건을 명시해야 함
-- 검색 품질은 우선 baseline 측정값을 기록하고, 이후 retrieval 개선 단계에서 기준 hit rate를 상향합니다.
+- 검색 품질은 top-3 hit rate 1.0을 현재 Gold Set 기준으로 유지합니다.
 
 ## 10. 현재 한계와 보완 예정
 
 - 원천 데이터 라이선스 검토는 문서화 수준이며, 자동 판정은 하지 않습니다.
 - 실제 강사 검토 데이터는 아직 없습니다. MVP 실증 단계에서 3명 내외의 사용자 평가를 수집해야 합니다.
-- 검색 평가는 keyword retrieval baseline입니다. 다음 단계에서 Gold Set 기대 chunk 정렬과 검색 scoring 개선을 수행합니다.
+- 검색 평가는 metadata-aware keyword retrieval baseline입니다. 이후 실제 LLM 생성 품질과 citation coverage 평가로 확장합니다.
 - 실제 LLM 생성 품질 평가는 mock이 아닌 API provider 연결 후 수행해야 합니다.

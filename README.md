@@ -27,7 +27,7 @@
 - `GET /api/packages/{package_id}/export.docx`
 - Pydantic 기반 Project, MaterialChunk, LessonPackage schema
 - TXT/MD/PDF 업로드 텍스트 추출 및 chunk 생성
-- 업로드된 chunk 대상 in-memory keyword retrieval
+- 업로드된 chunk 대상 metadata-aware keyword retrieval
 - Chroma 확장을 위한 VectorStore 경계
 - Chroma PersistentClient 런타임 검증
 - mock LLM provider 기반 교안·실습·평가 패키지 생성
@@ -128,10 +128,11 @@ python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-
 retrieval Gold Set 기준 검색 품질은 다음 명령으로 평가합니다.
 
 ```powershell
-python scripts\evaluate_retrieval.py --top-k 3 --report outputs\eval\retrieval_report.json
+python scripts\evaluate_retrieval.py --top-k 3 --min-hit-rate 1.0 --report outputs\eval\retrieval_report.json
 ```
 
 `--min-hit-rate`를 지정하면 기준 미달 시 종료 코드 `1`로 실패 처리할 수 있습니다.
+현재 MVP Gold Set 기준 baseline은 top-3 hit rate `1.0`입니다.
 
 ## 문서 구조
 
@@ -182,6 +183,7 @@ docs/
 - 구조화 검증: Pydantic
 - 문서 처리: PyMuPDF 기반 PDF 추출, python-docx DOCX 산출, python-pptx는 추후 적용
 - Vector DB: InMemory 기본값, Chroma PersistentClient adapter 검증 완료
+- 검색: 본문, source metadata, section, tags, 한국어/영어 개념 동의어 기반 keyword scoring
 - LLM: provider adapter 경계, mock provider, `http_chat` provider, generation log 우선
 - UI: Swagger UI 우선, 이후 Streamlit 확장
 - 평가: 자체 Gold Set, retrieval hit rate, 사람 평가 루브릭 우선, 이후 RAGAS 검토
