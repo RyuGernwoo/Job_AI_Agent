@@ -1,0 +1,17 @@
+synthetic: true
+created_for: LessonPack AI MVP
+created_at: '2026-07-16'
+authoring_method: manual_synthetic
+participants_target: 3
+scenario: 강사 역할로 차시 정보를 입력하고 교재 근거를 확인한 뒤 강의 패키지를 승인한다.
+tasks:
+- 프로젝트 생성
+- 교재 업로드 또는 샘플 교재 선택
+- RAG 검색 결과 확인
+- 교안·실습·평가 초안 검토
+- 수정 후 승인
+- DOCX 다운로드
+questions:
+- 흐름을 설명 없이 이해할 수 있었는가?
+- citation 표시가 생성 결과 신뢰도에 도움이 되었는가?
+- 다른 차시에도 사용할 의향이 있는가?

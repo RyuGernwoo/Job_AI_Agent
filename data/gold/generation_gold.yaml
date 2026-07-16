@@ -1,0 +1,66 @@
+synthetic: true
+created_for: LessonPack AI MVP
+created_at: '2026-07-16'
+authoring_method: manual_synthetic
+cases:
+- case_id: g001
+  input:
+    curriculum_id: curr-python-prompt-automation
+    ncs_unit_id: '2001020231'
+    source_ids:
+    - python-functions
+    - ncs-programming-language-use
+  expected:
+    lesson_plan_sections:
+    - 도입
+    - 전개
+    - 정리
+    practice_required:
+    - 실습 시나리오
+    - 수행 절차
+    - 제출물
+    - 평가 기준
+    assessment_required:
+      mcq_count: 5
+      performance_task_count: 1
+    citation_required: true
+- case_id: g002
+  input:
+    curriculum_id: curr-python-prompt-automation
+    ncs_unit_id: '2001020230'
+    source_ids:
+    - python-functions
+    - pandas-10min
+  expected:
+    lesson_plan_sections:
+    - 도입
+    - 전개
+    - 정리
+    practice_required:
+    - 라이브러리 활용
+    - 함수화
+    - 실행 결과
+    assessment_required:
+      mcq_count: 5
+      performance_task_count: 1
+    citation_required: true
+- case_id: g003
+  input:
+    curriculum_id: curr-python-prompt-automation
+    ncs_unit_id: '2001020235'
+    source_ids:
+    - python-data-structures
+    - ncs-data-structure-use
+  expected:
+    lesson_plan_sections:
+    - 도입
+    - 전개
+    - 정리
+    practice_required:
+    - list 또는 dictionary
+    - 정렬 또는 탐색
+    - 평가 기준
+    assessment_required:
+      mcq_count: 5
+      performance_task_count: 1
+    citation_required: true

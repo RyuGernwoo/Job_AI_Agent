@@ -28,9 +28,11 @@ dist/
 *.egg-info/
 
 # Local data and model artifacts
+# data/gold/ is intentionally tracked for small synthetic eval fixtures.
 data/raw/
 data/interim/
 data/processed/
+data/vector_store/
 /models/
 outputs/
 exports/

@@ -1,0 +1,21 @@
+synthetic: true
+created_for: LessonPack AI MVP
+created_at: '2026-07-16'
+authoring_method: manual_synthetic
+scale: 1-5
+criteria:
+- name: 교안 적합성
+  pass_score: 4
+  description: 차시 목표와 강의 흐름이 연결되는지 평가
+- name: 실습 적합성
+  pass_score: 4
+  description: 수강생이 120분 안에 수행 가능한지 평가
+- name: 평가 문항 품질
+  pass_score: 3
+  description: 정답, 해설, 난이도가 일관적인지 평가
+- name: 근거 신뢰도
+  pass_score: 4
+  description: Python/NCS chunk citation이 핵심 항목에 붙었는지 평가
+- name: 수정 편의성
+  pass_score: 3
+  description: 강사가 문장을 쉽게 수정할 수 있는지 평가

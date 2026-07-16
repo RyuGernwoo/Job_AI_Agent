@@ -13,7 +13,7 @@
 
 ## 현재 구현 상태
 
-2026-07-14 기준 구현된 범위는 다음과 같습니다.
+2026-07-16 기준 구현된 범위는 다음과 같습니다.
 
 - FastAPI 앱 skeleton
 - `GET /health`
@@ -36,6 +36,8 @@
 - generation log 조회 endpoint
 - `config.example.yaml` 기반 명시 설정 로더
 - `http_chat` 외부 LLM provider adapter
+- `scripts/prepare_mvp_dataset.py` 기반 MVP 데이터셋 준비 자동화
+- 합성 Gold Set과 사람 평가 루브릭 초안
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
 
@@ -76,6 +78,30 @@ http://127.0.0.1:8000/docs
 python -m unittest discover -s tests
 ```
 
+## 데이터셋 준비
+
+원천 데이터는 `data/raw/` 아래의 로컬 파일로 관리하며 Git에 포함하지 않습니다. 작은 합성 검증 데이터인 `data/gold/`만 커밋 대상으로 둡니다.
+
+MVP 데이터셋 산출물은 다음 명령으로 재생성합니다.
+
+```powershell
+python scripts\prepare_mvp_dataset.py
+```
+
+현재 스크립트는 선별된 Python 문서, pandas 10분 튜토리얼, NCS 응용SW엔지니어링 학습모듈 MD를 입력으로 사용해 다음을 생성합니다.
+
+- `data/raw/curriculum/curriculum_python_prompt_automation.yaml`
+- `data/raw/ncs/ncs_application_sw_programming.yaml`
+- `data/raw/synthetic/practice_examples.yaml`
+- `data/processed/chunks.jsonl`
+- `data/processed/chunk_index.csv`
+- `data/processed/selected_sources.yaml`
+- `data/processed/source_file_map.csv`
+- `data/processed/dataset_manifest.json`
+- `data/gold/retrieval_gold.jsonl`
+- `data/gold/generation_gold.yaml`
+- `data/gold/human_eval_rubric.yaml`
+
 ## 문서 구조
 
 ```text
@@ -95,6 +121,7 @@ docs/
     01_구현명세서.md
     02_데이터셋_선정_계획서.md
     03_검증_프로토콜.md
+    04_데이터셋_활용_전처리_계획서.md
   90_reference/
     KOSENA_AI_서비스기획.md
 ```
@@ -106,6 +133,7 @@ docs/
 - [구현명세서](docs/02_implementation-readiness/01_구현명세서.md)
 - [데이터셋 선정 계획서](docs/02_implementation-readiness/02_데이터셋_선정_계획서.md)
 - [검증 프로토콜](docs/02_implementation-readiness/03_검증_프로토콜.md)
+- [데이터셋 활용 및 전처리 계획서](docs/02_implementation-readiness/04_데이터셋_활용_전처리_계획서.md)
 
 ## KOSENA 산출물
 
