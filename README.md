@@ -102,6 +102,20 @@ python scripts\prepare_mvp_dataset.py
 - `data/gold/generation_gold.yaml`
 - `data/gold/human_eval_rubric.yaml`
 
+전처리 산출물 구조와 Gold Set 참조 무결성은 다음 명령으로 검증합니다.
+
+```powershell
+python scripts\validate_mvp_dataset.py
+```
+
+리포트 파일이 필요하면 다음처럼 실행합니다.
+
+```powershell
+python scripts\validate_mvp_dataset.py --report outputs\eval\dataset_validation_report.json
+```
+
+데이터셋 디렉터리별 역할과 Git 추적 정책은 [데이터셋 운영 문서](data/README_DATASET.md)를 참고합니다.
+
 ## 문서 구조
 
 ```text
