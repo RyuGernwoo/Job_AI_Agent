@@ -41,8 +41,10 @@ def evaluate_lesson_package(
     assessment_passed = actual_mcq_count >= required_mcq_count and actual_performance_count >= required_performance_count
 
     missing_citation_items: list[str] = []
+    citation_coverage = None
     if expected.get("citation_required"):
         missing_citation_items = _missing_citation_items(package, set(retrieved_chunk_ids))
+        citation_coverage = _citation_coverage(package, set(retrieved_chunk_ids))
 
     checks = {
         "lesson_sections": not missing_lesson_sections,
@@ -65,6 +67,7 @@ def evaluate_lesson_package(
             "required_performance_task_count": required_performance_count,
             "actual_performance_task_count": actual_performance_count,
         },
+        "citation_coverage": citation_coverage,
         "missing_citation_items": missing_citation_items,
     }
 
@@ -113,6 +116,21 @@ def _valid_citations(citation_ids: list[str], retrieved_chunk_ids: set[str]) -> 
     if not citation_ids:
         return False
     return all(citation_id in retrieved_chunk_ids for citation_id in citation_ids)
+
+
+def _citation_coverage(package: LessonPackage, retrieved_chunk_ids: set[str]) -> dict[str, int | float]:
+    citation_groups = [item.citation_ids for item in package.lesson_plan.lecture_flow]
+    citation_groups.append(package.practice.citation_ids)
+    citation_groups.extend(question.citation_ids for question in package.assessment.multiple_choice)
+    citation_groups.append(package.assessment.performance_task.citation_ids)
+
+    total = len(citation_groups)
+    valid = sum(1 for citation_ids in citation_groups if _valid_citations(citation_ids, retrieved_chunk_ids))
+    return {
+        "valid_items": valid,
+        "total_items": total,
+        "coverage": round(valid / total, 4) if total else 0.0,
+    }
 
 
 def _int_or_zero(value: Any) -> int:

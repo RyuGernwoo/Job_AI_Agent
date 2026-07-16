@@ -35,12 +35,16 @@ def evaluate_retrieval_gold(
     hit_count = 0
     empty_result_count = 0
     reciprocal_rank_sum = 0.0
+    context_precision_sum = 0.0
+    context_recall_sum = 0.0
 
     for row in gold_rows:
         expected_ids = [str(chunk_id) for chunk_id in row.get("expected_chunk_ids", [])]
         retrieved = retrieve_chunks(query=str(row["query"]), chunks=chunks, top_k=top_k)
         retrieved_ids = [chunk.chunk_id for chunk in retrieved]
         first_rank = _first_relevant_rank(retrieved_ids, expected_ids)
+        context_precision = _context_precision(retrieved_ids, expected_ids)
+        context_recall = _context_recall(retrieved_ids, expected_ids)
         hit = first_rank is not None
 
         if hit:
@@ -48,6 +52,8 @@ def evaluate_retrieval_gold(
             reciprocal_rank_sum += 1 / first_rank
         if not retrieved_ids:
             empty_result_count += 1
+        context_precision_sum += context_precision
+        context_recall_sum += context_recall
 
         cases.append(
             {
@@ -57,6 +63,8 @@ def evaluate_retrieval_gold(
                 "retrieved_chunk_ids": retrieved_ids,
                 "hit": hit,
                 "first_relevant_rank": first_rank,
+                "context_precision": context_precision,
+                "context_recall": context_recall,
                 "required_concepts": row.get("required_concepts", []),
             }
         )
@@ -69,6 +77,8 @@ def evaluate_retrieval_gold(
         "hit_rate": round(hit_count / total_queries, 4) if total_queries else 0.0,
         "empty_result_count": empty_result_count,
         "mean_reciprocal_rank": round(reciprocal_rank_sum / total_queries, 4) if total_queries else 0.0,
+        "average_context_precision": round(context_precision_sum / total_queries, 4) if total_queries else 0.0,
+        "average_context_recall": round(context_recall_sum / total_queries, 4) if total_queries else 0.0,
         "cases": cases,
     }
 
@@ -79,3 +89,19 @@ def _first_relevant_rank(retrieved_ids: list[str], expected_ids: list[str]) -> i
         if chunk_id in expected:
             return index
     return None
+
+
+def _context_precision(retrieved_ids: list[str], expected_ids: list[str]) -> float:
+    if not retrieved_ids:
+        return 0.0
+    expected = set(expected_ids)
+    relevant_count = sum(1 for chunk_id in retrieved_ids if chunk_id in expected)
+    return round(relevant_count / len(retrieved_ids), 4)
+
+
+def _context_recall(retrieved_ids: list[str], expected_ids: list[str]) -> float:
+    if not expected_ids:
+        return 0.0
+    retrieved = set(retrieved_ids)
+    expected = set(expected_ids)
+    return round(len(retrieved & expected) / len(expected), 4)

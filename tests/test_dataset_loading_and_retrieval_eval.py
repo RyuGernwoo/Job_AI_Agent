@@ -63,8 +63,12 @@ class DatasetLoadingAndRetrievalEvalTests(unittest.TestCase):
             self.assertEqual(report["empty_result_count"], 1)
             self.assertEqual(report["hit_rate"], 0.5)
             self.assertEqual(report["mean_reciprocal_rank"], 0.5)
+            self.assertEqual(report["average_context_precision"], 0.5)
+            self.assertEqual(report["average_context_recall"], 0.5)
             self.assertTrue(report["cases"][0]["hit"])
             self.assertEqual(report["cases"][0]["retrieved_chunk_ids"], ["source-a-c001"])
+            self.assertEqual(report["cases"][0]["context_precision"], 1.0)
+            self.assertEqual(report["cases"][0]["context_recall"], 1.0)
             self.assertFalse(report["cases"][1]["hit"])
 
     def test_retrieve_chunks_uses_metadata_and_korean_concept_synonyms(self):

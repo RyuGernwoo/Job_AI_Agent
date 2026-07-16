@@ -99,6 +99,7 @@ class GenerationEvaluationTests(unittest.TestCase):
         self.assertEqual(result["missing_lesson_sections"], [])
         self.assertEqual(result["missing_practice_items"], [])
         self.assertEqual(result["missing_citation_items"], [])
+        self.assertEqual(result["citation_coverage"]["coverage"], 1.0)
 
     def test_generation_evaluation_fails_missing_citations(self):
         project = sample_project()
@@ -116,6 +117,7 @@ class GenerationEvaluationTests(unittest.TestCase):
 
         self.assertFalse(result["passed"])
         self.assertIn("practice", result["missing_citation_items"])
+        self.assertLess(result["citation_coverage"]["coverage"], 1.0)
 
 
 if __name__ == "__main__":

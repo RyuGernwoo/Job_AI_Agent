@@ -40,10 +40,11 @@
 - `scripts/prepare_mvp_dataset.py` 기반 MVP 데이터셋 준비 자동화
 - `data/processed/chunks.jsonl` 로더
 - processed dataset VectorStore ingest 스크립트
-- retrieval Gold Set 기반 검색 품질 평가 스크립트
-- generation Gold Set 기반 생성 품질 평가 스크립트
+- retrieval Gold Set 기반 검색 품질 평가 스크립트와 ID 기반 context precision/recall
+- generation Gold Set 기반 생성 품질 평가 스크립트와 citation coverage
 - LLM provider readiness check와 실제 provider 평가 게이트
 - MVP end-to-end 데모 실행 스크립트와 DOCX/PPTX 산출물 생성
+- MVP 검증 프로토콜 JSON/Markdown 리포트 생성 스크립트
 - 합성 Gold Set과 사람 평가 루브릭 초안
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
@@ -171,6 +172,14 @@ python scripts\run_mvp_demo.py --case-id g003 --output-dir outputs\demo
 성공 시 `outputs/demo/g003_lesson_package.docx`, `outputs/demo/g003_lesson_package.pptx`, `outputs/demo/g003_demo_report.json`이 생성됩니다.
 실제 LLM으로 데모 산출물을 만들 때는 `--require-real-llm` 옵션을 추가합니다.
 
+데이터셋, 검색, 생성, provider 준비 상태, 데모 export를 한 번에 검증하려면 다음 명령을 실행합니다.
+
+```powershell
+python scripts\run_mvp_verification.py --output-dir outputs\eval --demo-case-id g003
+```
+
+성공 시 `outputs/eval/mvp_verification_report.json`과 `outputs/eval/mvp_verification_report.md`가 생성됩니다.
+
 ## 문서 구조
 
 ```text
@@ -223,7 +232,7 @@ docs/
 - 검색: 본문, source metadata, section, tags, 한국어/영어 개념 동의어 기반 keyword scoring
 - LLM: provider adapter 경계, mock provider, `http_chat` provider, generation log 우선
 - UI: Swagger UI 우선, 이후 Streamlit 확장
-- 평가: 자체 Gold Set, retrieval hit rate, generation case pass rate, 사람 평가 루브릭 우선, 이후 RAGAS 검토
+- 평가: 자체 Gold Set, retrieval hit rate, ID 기반 context precision/recall, generation case pass rate, citation coverage, 사람 평가 루브릭 우선, 이후 RAGAS 검토
 
 ## 작성자
 
