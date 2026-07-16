@@ -42,6 +42,7 @@
 - retrieval Gold Set 기반 검색 품질 평가 스크립트
 - generation Gold Set 기반 생성 품질 평가 스크립트
 - LLM provider readiness check와 실제 provider 평가 게이트
+- MVP end-to-end 데모 실행 스크립트와 DOCX 산출물 생성
 - 합성 Gold Set과 사람 평가 루브릭 초안
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
@@ -159,6 +160,15 @@ python scripts\evaluate_generation.py --require-real-llm --min-case-pass-rate 1.
 ```
 
 API key는 Git에 커밋하지 않고 환경변수로만 주입합니다.
+
+발표/실증용 MVP 데모 산출물은 다음 명령으로 생성합니다.
+
+```powershell
+python scripts\run_mvp_demo.py --case-id g003 --output-dir outputs\demo
+```
+
+성공 시 `outputs/demo/g003_lesson_package.docx`와 `outputs/demo/g003_demo_report.json`이 생성됩니다.
+실제 LLM으로 데모 산출물을 만들 때는 `--require-real-llm` 옵션을 추가합니다.
 
 ## 문서 구조
 

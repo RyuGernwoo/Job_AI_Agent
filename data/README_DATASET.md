@@ -154,7 +154,33 @@ python scripts\evaluate_generation.py --require-real-llm --min-case-pass-rate 1.
 
 `--require-real-llm`은 mock provider가 사용되는 상황을 실패로 처리합니다.
 
-## 10. 품질 기준
+## 10. MVP 데모 산출물
+
+발표/실증용 end-to-end 데모 산출물은 다음 명령으로 생성합니다.
+
+```powershell
+python scripts\run_mvp_demo.py --case-id g003 --output-dir outputs\demo
+```
+
+데모 스크립트는 다음 순서로 실행됩니다.
+
+- 데이터셋 구조 검증
+- generation Gold case 선택
+- source별 chunk 선택
+- 교안·실습·평가 패키지 생성
+- generation Gold 기준 자동 평가
+- `reviewed -> approved` 상태 전환
+- DOCX export
+- JSON 리포트 저장
+
+성공 시 다음 파일이 생성됩니다.
+
+- `outputs/demo/g003_lesson_package.docx`
+- `outputs/demo/g003_demo_report.json`
+
+실제 LLM으로 데모 산출물을 만들 때는 `LESSONPACK_CONFIG`와 API key 환경변수를 설정한 뒤 `--require-real-llm`을 추가합니다.
+
+## 11. 품질 기준
 
 현재 MVP 기준은 다음과 같습니다.
 
@@ -167,7 +193,7 @@ python scripts\evaluate_generation.py --require-real-llm --min-case-pass-rate 1.
 - 생성 품질은 mock provider 기준 generation case pass rate 1.0을 유지합니다.
 - 실제 LLM 실증 시에도 generation case pass rate 1.0을 목표로 하되, 실패 case는 사람 검토 대상으로 기록합니다.
 
-## 11. 현재 한계와 보완 예정
+## 12. 현재 한계와 보완 예정
 
 - 원천 데이터 라이선스 검토는 문서화 수준이며, 자동 판정은 하지 않습니다.
 - 실제 강사 검토 데이터는 아직 없습니다. MVP 실증 단계에서 3명 내외의 사용자 평가를 수집해야 합니다.
