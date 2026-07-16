@@ -37,6 +37,9 @@
 - `config.example.yaml` 기반 명시 설정 로더
 - `http_chat` 외부 LLM provider adapter
 - `scripts/prepare_mvp_dataset.py` 기반 MVP 데이터셋 준비 자동화
+- `data/processed/chunks.jsonl` 로더
+- processed dataset VectorStore ingest 스크립트
+- retrieval Gold Set 기반 검색 품질 평가 스크립트
 - 합성 Gold Set과 사람 평가 루브릭 초안
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
@@ -116,6 +119,20 @@ python scripts\validate_mvp_dataset.py --report outputs\eval\dataset_validation_
 
 데이터셋 디렉터리별 역할과 Git 추적 정책은 [데이터셋 운영 문서](data/README_DATASET.md)를 참고합니다.
 
+전처리된 chunk를 현재 VectorStore 경계에 적재하고 검색 스모크 테스트를 수행하려면 다음 명령을 실행합니다.
+
+```powershell
+python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-k 3
+```
+
+retrieval Gold Set 기준 검색 품질은 다음 명령으로 평가합니다.
+
+```powershell
+python scripts\evaluate_retrieval.py --top-k 3 --report outputs\eval\retrieval_report.json
+```
+
+`--min-hit-rate`를 지정하면 기준 미달 시 종료 코드 `1`로 실패 처리할 수 있습니다.
+
 ## 문서 구조
 
 ```text
@@ -167,7 +184,7 @@ docs/
 - Vector DB: InMemory 기본값, Chroma PersistentClient adapter 검증 완료
 - LLM: provider adapter 경계, mock provider, `http_chat` provider, generation log 우선
 - UI: Swagger UI 우선, 이후 Streamlit 확장
-- 평가: 자체 Gold Set과 사람 평가 루브릭 우선, 이후 RAGAS 검토
+- 평가: 자체 Gold Set, retrieval hit rate, 사람 평가 루브릭 우선, 이후 RAGAS 검토
 
 ## 작성자
 

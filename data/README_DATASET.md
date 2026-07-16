@@ -82,7 +82,44 @@ python scripts\validate_mvp_dataset.py --report outputs\eval\dataset_validation_
 
 오류가 하나라도 있으면 CLI 종료 코드는 `1`이 됩니다.
 
-## 7. 품질 기준
+## 7. VectorStore 적재
+
+전처리된 chunk를 현재 VectorStore 경계에 적재하려면 다음 명령을 실행합니다.
+
+```powershell
+python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-k 3
+```
+
+기본 VectorStore는 in-memory입니다. Chroma에 적재하려면 다음 환경변수를 설정한 뒤 같은 명령을 실행합니다.
+
+```powershell
+$env:LECTUREOPS_VECTOR_STORE="chroma"
+$env:LECTUREOPS_CHROMA_PATH="data\vector_store\chroma"
+$env:LECTUREOPS_CHROMA_COLLECTION="lessonpack_mvp"
+python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-k 3
+```
+
+## 8. 검색 평가
+
+retrieval Gold Set 기준 검색 품질은 다음 명령으로 평가합니다.
+
+```powershell
+python scripts\evaluate_retrieval.py --top-k 3 --report outputs\eval\retrieval_report.json
+```
+
+주요 지표는 다음과 같습니다.
+
+- `hit_rate`: 기대 chunk가 top-k 검색 결과에 하나 이상 포함된 질의 비율
+- `mean_reciprocal_rank`: 첫 번째 정답 chunk 순위의 역수 평균
+- `empty_result_count`: 검색 결과가 비어 있는 질의 수
+
+품질 게이트가 필요하면 `--min-hit-rate`를 지정합니다.
+
+```powershell
+python scripts\evaluate_retrieval.py --top-k 3 --min-hit-rate 0.5
+```
+
+## 9. 품질 기준
 
 현재 MVP 기준은 다음과 같습니다.
 
@@ -91,10 +128,11 @@ python scripts\validate_mvp_dataset.py --report outputs\eval\dataset_validation_
 - 생성 Gold Case: 3개 이상
 - 모든 Gold의 참조 ID는 실제 데이터셋에 존재해야 함
 - NCS 자료는 출처와 교육 목적 활용 조건을 명시해야 함
+- 검색 품질은 우선 baseline 측정값을 기록하고, 이후 retrieval 개선 단계에서 기준 hit rate를 상향합니다.
 
-## 8. 현재 한계와 보완 예정
+## 10. 현재 한계와 보완 예정
 
 - 원천 데이터 라이선스 검토는 문서화 수준이며, 자동 판정은 하지 않습니다.
 - 실제 강사 검토 데이터는 아직 없습니다. MVP 실증 단계에서 3명 내외의 사용자 평가를 수집해야 합니다.
-- 검색 평가는 아직 구조 검증 중심입니다. 다음 단계에서 Top-k hit rate와 citation coverage 평가를 별도 스크립트로 구현합니다.
+- 검색 평가는 keyword retrieval baseline입니다. 다음 단계에서 Gold Set 기대 chunk 정렬과 검색 scoring 개선을 수행합니다.
 - 실제 LLM 생성 품질 평가는 mock이 아닌 API provider 연결 후 수행해야 합니다.
