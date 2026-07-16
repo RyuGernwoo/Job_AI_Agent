@@ -18,7 +18,7 @@ from lectureops_agent.models.schemas import (
     ReviewPatch,
 )
 from lectureops_agent.services.chunk_service import chunk_text
-from lectureops_agent.services.export_service import export_lesson_package_docx
+from lectureops_agent.services.export_service import export_lesson_package_docx, export_lesson_package_pptx
 from lectureops_agent.services.generation_service import generate_lesson_package_with_log
 from lectureops_agent.services.llm_provider import LLMProvider, create_llm_provider_from_config, create_llm_provider_from_env
 from lectureops_agent.services.parser_service import decode_text_material
@@ -28,6 +28,7 @@ from lectureops_agent.services.vector_store import VectorStore, create_vector_st
 CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 
 def create_app(
@@ -161,6 +162,22 @@ def create_app(
             path=output_path,
             media_type=DOCX_MEDIA_TYPE,
             filename=f"{package_id}.docx",
+        )
+
+    @app.get("/api/packages/{package_id}/export.pptx")
+    def export_pptx(package_id: str) -> FileResponse:
+        package = packages.get(package_id)
+        if package is None:
+            raise HTTPException(status_code=404, detail="package not found")
+        output_path = Path(tempfile.gettempdir()) / "lessonpack_ai_exports" / f"{package_id}.pptx"
+        try:
+            export_lesson_package_pptx(package=package, output_path=output_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return FileResponse(
+            path=output_path,
+            media_type=PPTX_MEDIA_TYPE,
+            filename=f"{package_id}.pptx",
         )
 
     return app

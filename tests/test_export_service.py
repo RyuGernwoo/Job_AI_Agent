@@ -4,12 +4,13 @@ import unittest
 from pathlib import Path
 
 from docx import Document
+from pptx import Presentation
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from lectureops_agent.models.schemas import MaterialChunk, NCSUnit, PackageStatus, ProjectCreate
-from lectureops_agent.services.export_service import export_lesson_package_docx
+from lectureops_agent.services.export_service import export_lesson_package_docx, export_lesson_package_pptx
 from lectureops_agent.services.generation_service import generate_lesson_package
 
 
@@ -58,6 +59,34 @@ class ExportServiceTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 export_lesson_package_docx(package=package, output_path=output_path)
+
+    def test_export_lesson_package_pptx_writes_summary_slides(self):
+        package = make_package(PackageStatus.APPROVED)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "lesson_package.pptx"
+
+            result = export_lesson_package_pptx(package=package, output_path=output_path)
+
+            self.assertEqual(result, output_path)
+            self.assertTrue(output_path.exists())
+            presentation = Presentation(str(output_path))
+            slide_text = "\n".join(
+                shape.text
+                for slide in presentation.slides
+                for shape in slide.shapes
+                if hasattr(shape, "text")
+            )
+            self.assertIn("Python functions and prompt automation practice", slide_text)
+            self.assertIn("Practice", slide_text)
+            self.assertIn("Evidence Sources", slide_text)
+
+    def test_export_lesson_package_pptx_rejects_unapproved_package(self):
+        package = make_package(PackageStatus.DRAFT)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "draft.pptx"
+
+            with self.assertRaises(ValueError):
+                export_lesson_package_pptx(package=package, output_path=output_path)
 
 
 if __name__ == "__main__":

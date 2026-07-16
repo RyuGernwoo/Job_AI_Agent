@@ -8,7 +8,7 @@ import yaml
 
 from lectureops_agent.models.schemas import NCSUnit, PackageStatus, ProjectCreate, ReviewPatch
 from lectureops_agent.services.dataset_loader import DEFAULT_DATASET_PROJECT_ID, load_processed_chunks
-from lectureops_agent.services.export_service import export_lesson_package_docx
+from lectureops_agent.services.export_service import export_lesson_package_docx, export_lesson_package_pptx
 from lectureops_agent.services.generation_evaluation import evaluate_lesson_package, load_generation_gold
 from lectureops_agent.services.generation_service import generate_lesson_package_with_log
 from lectureops_agent.services.llm_provider import LLMProvider, MockLLMProvider
@@ -67,6 +67,8 @@ def run_mvp_demo(
 
     docx_path = output_dir / f"{case_id}_lesson_package.docx"
     export_lesson_package_docx(package=approved, output_path=docx_path)
+    pptx_path = output_dir / f"{case_id}_lesson_package.pptx"
+    export_lesson_package_pptx(package=approved, output_path=pptx_path)
 
     report_path = output_dir / f"{case_id}_demo_report.json"
     report = {
@@ -78,6 +80,7 @@ def run_mvp_demo(
         "retrieved_chunk_ids": retrieved_chunk_ids,
         "evaluation": evaluation,
         "docx_path": str(docx_path),
+        "pptx_path": str(pptx_path),
         "report_path": str(report_path),
     }
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

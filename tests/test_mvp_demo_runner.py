@@ -30,9 +30,11 @@ class MVPDemoRunnerTests(unittest.TestCase):
             self.assertEqual(report["package_status"], "approved")
             self.assertEqual(report["retrieved_chunk_ids"], ["python-functions-c001", "ncs-demo-c001"])
             self.assertTrue(Path(report["docx_path"]).exists())
+            self.assertTrue(Path(report["pptx_path"]).exists())
             self.assertTrue(Path(report["report_path"]).exists())
             saved = json.loads(Path(report["report_path"]).read_text(encoding="utf-8"))
             self.assertEqual(saved["case_id"], "g-demo")
+            self.assertTrue(Path(saved["pptx_path"]).exists())
 
     def _write_demo_dataset(self, data_dir: Path) -> None:
         processed = data_dir / "processed"

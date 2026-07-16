@@ -44,6 +44,8 @@ class ExportApiTests(unittest.TestCase):
 
         rejected = client.get(f"/api/packages/{package_id}/export.docx")
         self.assertEqual(rejected.status_code, 409)
+        rejected_pptx = client.get(f"/api/packages/{package_id}/export.pptx")
+        self.assertEqual(rejected_pptx.status_code, 409)
 
         client.patch(
             f"/api/packages/{package_id}/review",
@@ -61,6 +63,14 @@ class ExportApiTests(unittest.TestCase):
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
         self.assertTrue(exported.content.startswith(b"PK"))
+
+        exported_pptx = client.get(f"/api/packages/{package_id}/export.pptx")
+        self.assertEqual(exported_pptx.status_code, 200)
+        self.assertEqual(
+            exported_pptx.headers["content-type"],
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        )
+        self.assertTrue(exported_pptx.content.startswith(b"PK"))
 
 
 if __name__ == "__main__":

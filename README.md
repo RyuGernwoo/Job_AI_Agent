@@ -25,6 +25,7 @@
 - `GET /api/packages/{package_id}/generation-log`
 - `PATCH /api/packages/{package_id}/review`
 - `GET /api/packages/{package_id}/export.docx`
+- `GET /api/packages/{package_id}/export.pptx`
 - Pydantic 기반 Project, MaterialChunk, LessonPackage schema
 - TXT/MD/PDF 업로드 텍스트 추출 및 chunk 생성
 - 업로드된 chunk 대상 metadata-aware keyword retrieval
@@ -32,7 +33,7 @@
 - Chroma PersistentClient 런타임 검증
 - mock LLM provider 기반 교안·실습·평가 패키지 생성
 - `draft -> reviewed -> approved` 검토 상태 전환
-- approved 패키지 DOCX export endpoint
+- approved 패키지 DOCX/PPTX export endpoint
 - generation log 조회 endpoint
 - `config.example.yaml` 기반 명시 설정 로더
 - `http_chat` 외부 LLM provider adapter
@@ -42,12 +43,12 @@
 - retrieval Gold Set 기반 검색 품질 평가 스크립트
 - generation Gold Set 기반 생성 품질 평가 스크립트
 - LLM provider readiness check와 실제 provider 평가 게이트
-- MVP end-to-end 데모 실행 스크립트와 DOCX 산출물 생성
+- MVP end-to-end 데모 실행 스크립트와 DOCX/PPTX 산출물 생성
 - 합성 Gold Set과 사람 평가 루브릭 초안
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
 
-아직 구현하지 않은 범위는 실제 API 키 기반 LLM 실증, RAGAS 평가 자동화, PPTX export입니다.
+아직 구현하지 않은 범위는 실제 API 키 기반 LLM 실증, RAGAS 평가 자동화입니다.
 
 ## 실행 방법
 
@@ -167,7 +168,7 @@ API key는 Git에 커밋하지 않고 환경변수로만 주입합니다.
 python scripts\run_mvp_demo.py --case-id g003 --output-dir outputs\demo
 ```
 
-성공 시 `outputs/demo/g003_lesson_package.docx`와 `outputs/demo/g003_demo_report.json`이 생성됩니다.
+성공 시 `outputs/demo/g003_lesson_package.docx`, `outputs/demo/g003_lesson_package.pptx`, `outputs/demo/g003_demo_report.json`이 생성됩니다.
 실제 LLM으로 데모 산출물을 만들 때는 `--require-real-llm` 옵션을 추가합니다.
 
 ## 문서 구조
@@ -217,7 +218,7 @@ docs/
 
 - API 서버: FastAPI
 - 구조화 검증: Pydantic
-- 문서 처리: PyMuPDF 기반 PDF 추출, python-docx DOCX 산출, python-pptx는 추후 적용
+- 문서 처리: PyMuPDF 기반 PDF 추출, python-docx DOCX 산출, python-pptx PPTX 산출
 - Vector DB: InMemory 기본값, Chroma PersistentClient adapter 검증 완료
 - 검색: 본문, source metadata, section, tags, 한국어/영어 개념 동의어 기반 keyword scoring
 - LLM: provider adapter 경계, mock provider, `http_chat` provider, generation log 우선

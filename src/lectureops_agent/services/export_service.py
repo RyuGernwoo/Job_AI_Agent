@@ -1,13 +1,13 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from docx import Document
+from pptx import Presentation
 
 from lectureops_agent.models.schemas import LessonPackage, PackageStatus
 
 
 def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> Path:
-    if package.status != PackageStatus.APPROVED:
-        raise ValueError("only approved packages can be exported")
+    _ensure_exportable(package)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document = Document()
@@ -63,6 +63,61 @@ def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> 
     return output_path
 
 
+def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> Path:
+    _ensure_exportable(package)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    presentation = Presentation()
+
+    cover = presentation.slides.add_slide(presentation.slide_layouts[0])
+    cover.shapes.title.text = package.lesson_plan.title
+    cover.placeholders[1].text = (
+        "LessonPack AI generated lesson package\n"
+        f"Package ID: {package.package_id}\n"
+        f"Project ID: {package.project_id}"
+    )
+
+    _add_bullet_slide(
+        presentation,
+        "Learning Objectives",
+        package.lesson_plan.learning_objectives,
+    )
+
+    for flow in package.lesson_plan.lecture_flow:
+        bullets = [_truncate(flow.content), f"Citations: {', '.join(flow.citation_ids)}"]
+        if flow.duration_min:
+            bullets.insert(0, f"Duration: {flow.duration_min} min")
+        _add_bullet_slide(presentation, f"Lesson Plan - {flow.section}", bullets)
+
+    _add_bullet_slide(
+        presentation,
+        "Practice",
+        [
+            _truncate(package.practice.scenario),
+            *package.practice.steps,
+            f"Submission: {package.practice.submission}",
+            f"Citations: {', '.join(package.practice.citation_ids)}",
+        ],
+    )
+
+    task = package.assessment.performance_task
+    _add_bullet_slide(
+        presentation,
+        "Assessment",
+        [
+            f"Multiple choice questions: {len(package.assessment.multiple_choice)}",
+            f"Performance task: {task.title}",
+            _truncate(task.description),
+            f"Citations: {', '.join(task.citation_ids)}",
+        ],
+    )
+
+    _add_bullet_slide(presentation, "Evidence Sources", _collect_citation_ids(package))
+
+    presentation.save(output_path)
+    return output_path
+
+
 def _collect_citation_ids(package: LessonPackage) -> list[str]:
     ordered: list[str] = []
     seen: set[str] = set()
@@ -80,3 +135,26 @@ def _collect_citation_ids(package: LessonPackage) -> list[str]:
         add_many(question.citation_ids)
     add_many(package.assessment.performance_task.citation_ids)
     return ordered
+
+
+def _ensure_exportable(package: LessonPackage) -> None:
+    if package.status != PackageStatus.APPROVED:
+        raise ValueError("only approved packages can be exported")
+
+
+def _add_bullet_slide(presentation: Presentation, title: str, bullets: list[str]) -> None:
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = title
+    body = slide.placeholders[1].text_frame
+    body.clear()
+    for index, bullet in enumerate(bullets):
+        paragraph = body.paragraphs[0] if index == 0 else body.add_paragraph()
+        paragraph.text = _truncate(bullet)
+        paragraph.level = 0
+
+
+def _truncate(value: str, max_length: int = 240) -> str:
+    normalized = " ".join(value.split())
+    if len(normalized) <= max_length:
+        return normalized
+    return normalized[: max_length - 3].rstrip() + "..."
