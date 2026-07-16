@@ -20,6 +20,7 @@ from lectureops_agent.services.dataset_loader import DEFAULT_DATASET_PROJECT_ID,
 from lectureops_agent.services.generation_evaluation import evaluate_lesson_package, load_generation_gold
 from lectureops_agent.services.generation_service import generate_lesson_package_with_log
 from lectureops_agent.services.llm_provider import create_llm_provider_from_env
+from lectureops_agent.services.llm_provider_readiness import check_llm_provider_readiness
 from scripts.validate_mvp_dataset import validate_dataset
 
 
@@ -29,6 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project-id", default=DEFAULT_DATASET_PROJECT_ID, help="Base project id for evaluation cases.")
     parser.add_argument("--chunks-per-source", type=int, default=2, help="Number of chunks selected per source id.")
     parser.add_argument("--min-case-pass-rate", type=float, default=0.0, help="Optional minimum case pass rate gate.")
+    parser.add_argument("--require-real-llm", action="store_true", help="Fail unless a non-mock LLM provider is ready.")
     parser.add_argument("--report", type=Path, help="Optional JSON report output path.")
     args = parser.parse_args(argv)
 
@@ -41,6 +43,19 @@ def main(argv: list[str] | None = None) -> int:
     generation_gold = load_generation_gold(args.data_dir / "gold" / "generation_gold.yaml")
     curriculum = _read_yaml(args.data_dir / "raw" / "curriculum" / "curriculum_python_prompt_automation.yaml")
     ncs_data = _read_yaml(args.data_dir / "raw" / "ncs" / "ncs_application_sw_programming.yaml")
+    provider_readiness = check_llm_provider_readiness()
+    if not provider_readiness["ready"] or (args.require_real_llm and not provider_readiness["real_provider_ready"]):
+        print(
+            json.dumps(
+                {
+                    "provider_readiness": provider_readiness,
+                    "require_real_llm": args.require_real_llm,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
     provider = create_llm_provider_from_env()
 
     case_reports = []
@@ -107,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         "average_score": round(score_sum / total_cases, 4) if total_cases else 0.0,
         "passed_min_case_pass_rate": case_pass_rate >= args.min_case_pass_rate,
         "data_dir": str(args.data_dir),
+        "provider_readiness": provider_readiness,
         "validation": validation,
         "cases": case_reports,
     }

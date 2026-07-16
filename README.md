@@ -41,6 +41,7 @@
 - processed dataset VectorStore ingest 스크립트
 - retrieval Gold Set 기반 검색 품질 평가 스크립트
 - generation Gold Set 기반 생성 품질 평가 스크립트
+- LLM provider readiness check와 실제 provider 평가 게이트
 - 합성 Gold Set과 사람 평가 루브릭 초안
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
@@ -142,6 +143,22 @@ python scripts\evaluate_generation.py --min-case-pass-rate 1.0 --report outputs\
 ```
 
 현재 mock provider 기준 baseline은 case pass rate `1.0`입니다.
+
+실제 LLM provider 실증 전에는 다음 명령으로 설정과 API key 환경변수 준비 상태를 확인합니다.
+
+```powershell
+python scripts\check_llm_provider.py --config config.yaml --require-real
+```
+
+실제 provider로 generation Gold Set을 평가할 때는 다음처럼 실행합니다.
+
+```powershell
+$env:LESSONPACK_CONFIG="config.yaml"
+$env:LESSONPACK_HTTP_API_KEY="..."
+python scripts\evaluate_generation.py --require-real-llm --min-case-pass-rate 1.0 --report outputs\eval\generation_real_llm_report.json
+```
+
+API key는 Git에 커밋하지 않고 환경변수로만 주입합니다.
 
 ## 문서 구조
 
