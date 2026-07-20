@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from lectureops_agent.config import LessonPackConfig
 from lectureops_agent.env import load_env_file
+from lectureops_agent.services.langfuse_tracing import (
+    configure_langfuse_otel_env,
+    flush_langfuse_otel,
+    litellm_callbacks_for_runtime,
+    record_langfuse_llm_span,
+)
 
 
 class LLMProvider(Protocol):
@@ -104,9 +111,12 @@ class LiteLLMProvider:
         except ModuleNotFoundError as exc:
             raise RuntimeError("litellm is not installed; run pip install -r requirements.txt") from exc
 
-        if self.callbacks:
-            litellm.callbacks = list(self.callbacks)
+        otel_config = configure_langfuse_otel_env(self.callbacks)
+        runtime_callbacks = litellm_callbacks_for_runtime(self.callbacks)
+        if runtime_callbacks:
+            litellm.callbacks = runtime_callbacks
 
+        metadata = _litellm_metadata()
         request: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -116,6 +126,7 @@ class LiteLLMProvider:
                 },
                 {"role": "user", "content": prompt},
             ],
+            "metadata": metadata,
         }
         if self.fallback_models:
             request["fallbacks"] = list(self.fallback_models)
@@ -123,7 +134,20 @@ class LiteLLMProvider:
             request["timeout"] = self.timeout_seconds
 
         response = litellm.completion(**request)
-        return _extract_message_content(response)
+        response_text = _extract_message_content(response)
+        if otel_config.enabled:
+            record_langfuse_llm_span(
+                callbacks=self.callbacks,
+                provider_name=self.name,
+                model=self.model,
+                fallback_models=self.fallback_models,
+                prompt=prompt,
+                response_text=response_text,
+                metadata=metadata,
+            )
+            _wait_before_otel_flush()
+            flush_langfuse_otel()
+        return response_text
 
 
 HTTP_PROVIDER_NAMES = {"http_chat", "openai_compatible"}
@@ -204,6 +228,30 @@ def _extract_message_content(response: Any) -> str:
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError("LLM provider returned empty content")
     return content.strip()
+
+
+def _litellm_metadata() -> dict[str, Any]:
+    app_env = os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or "development"
+    metadata: dict[str, Any] = {
+        "generation_name": os.getenv("LESSONPACK_LANGFUSE_GENERATION_NAME", "lessonpack-ai-generation"),
+        "trace_name": os.getenv("LESSONPACK_LANGFUSE_TRACE_NAME", "lessonpack-ai-mvp"),
+        "session_id": os.getenv("LESSONPACK_LANGFUSE_SESSION_ID", "lessonpack-ai"),
+        "tags": ["lessonpack-ai", app_env],
+    }
+    trace_id = os.getenv("LESSONPACK_LANGFUSE_TRACE_ID", "").strip()
+    if trace_id:
+        metadata["trace_id"] = trace_id
+    return metadata
+
+
+def _wait_before_otel_flush() -> None:
+    value = os.getenv("LESSONPACK_LANGFUSE_FLUSH_WAIT_SECONDS", "1.0").strip()
+    try:
+        seconds = float(value)
+    except ValueError:
+        seconds = 1.0
+    if seconds > 0:
+        time.sleep(seconds)
 
 
 def _split_env_list(value: str | None) -> list[str]:

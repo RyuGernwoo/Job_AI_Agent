@@ -1,4 +1,4 @@
-﻿# LessonPack AI GCE Docker CI/CD 배포 기획서
+# LessonPack AI GCE Docker CI/CD 배포 기획서
 
 작성일: 2026-07-20
 대상 프로젝트: LessonPack AI
@@ -217,7 +217,7 @@ GCE 배포와 운영 실행에 필요한 값을 GitHub Repository Secrets에 등
 | `GEMINI_API_KEY` | 예 | Gemini fallback 호출 |
 | `LANGFUSE_PUBLIC_KEY` | 예 | Langfuse trace public key |
 | `LANGFUSE_SECRET_KEY` | 예 | Langfuse trace secret key |
-| `LANGFUSE_OTEL_HOST` | 선택 | Langfuse endpoint override |
+| `LANGFUSE_OTEL_HOST` | 예 | Langfuse 리전 host. JP 예: `https://jp.cloud.langfuse.com` |
 | `SUPABASE_URL` | 예 | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | 예 | Supabase server-side key |
 | `LESSONPACK_SUPABASE_TABLE` | 선택 | 기본 `lessonpack_chunks` |
@@ -242,7 +242,7 @@ DEBUG=false
 SERVICE_PORT=8000
 APP_IMAGE=ghcr.io/ryugernwoo/job_ai_agent/lessonpack-api:sha-xxxxxxxxxxxx
 PYTHONPATH=/app/src
-LESSONPACK_CONFIG=config.yaml
+LESSONPACK_CONFIG=
 LESSONPACK_LLM_PROVIDER=litellm
 LESSONPACK_LITELLM_MODEL=gpt-4o-mini
 LESSONPACK_LITELLM_FALLBACK_MODELS=gemini/gemini-2.0-flash
@@ -251,6 +251,12 @@ OPENAI_API_KEY=<github-secret>
 GEMINI_API_KEY=<github-secret>
 LANGFUSE_PUBLIC_KEY=<github-secret>
 LANGFUSE_SECRET_KEY=<github-secret>
+LANGFUSE_OTEL_HOST=https://jp.cloud.langfuse.com
+LANGFUSE_BASE_URL=https://jp.cloud.langfuse.com
+LESSONPACK_LANGFUSE_TRACE_NAME=lessonpack-ai-mvp
+LESSONPACK_LANGFUSE_GENERATION_NAME=lessonpack-ai-generation
+LESSONPACK_LANGFUSE_SESSION_ID=lessonpack-ai-production
+LESSONPACK_LANGFUSE_FLUSH_WAIT_SECONDS=1.0
 SUPABASE_URL=<github-secret>
 SUPABASE_SERVICE_ROLE_KEY=<github-secret>
 LESSONPACK_SUPABASE_TABLE=lessonpack_chunks
@@ -263,6 +269,7 @@ LECTUREOPS_VECTOR_STORE=supabase
 
 - `.env`는 Git에 commit하지 않는다.
 - GCE 서버의 `.env`도 repository에서 pull하지 않고 GitHub Actions가 생성한다.
+- Langfuse trace가 대시보드에 보이지 않으면 먼저 `LANGFUSE_OTEL_HOST`가 실제 프로젝트 리전과 같은지 확인하고, `python scripts/check_langfuse_trace.py --output outputs/eval/langfuse_trace_smoke.json`로 synthetic trace를 조회한다.
 - `SUPABASE_SERVICE_ROLE_KEY`는 browser, Streamlit client, public log에 노출하지 않는다.
 - workflow log에 secret 값이 출력되지 않도록 `printf`, base64 전달, GitHub secret masking을 사용한다.
 

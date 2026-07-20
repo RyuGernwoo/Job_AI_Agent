@@ -1,4 +1,4 @@
-﻿name: LessonPack AI CD
+name: LessonPack AI CD
 
 on:
   workflow_run:
@@ -151,6 +151,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_OTEL_HOST: ${{ secrets.LANGFUSE_OTEL_HOST }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
@@ -162,6 +163,7 @@ jobs:
           test -n "$GEMINI_API_KEY"
           test -n "$LANGFUSE_PUBLIC_KEY"
           test -n "$LANGFUSE_SECRET_KEY"
+          test -n "$LANGFUSE_OTEL_HOST"
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
 
@@ -248,9 +250,12 @@ jobs:
               printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
               printf 'LANGFUSE_PUBLIC_KEY=%s\n' "$LANGFUSE_PUBLIC_KEY"
               printf 'LANGFUSE_SECRET_KEY=%s\n' "$LANGFUSE_SECRET_KEY"
-              if [ -n "$LANGFUSE_OTEL_HOST" ]; then
-                printf 'LANGFUSE_OTEL_HOST=%s\n' "$LANGFUSE_OTEL_HOST"
-              fi
+              printf 'LANGFUSE_OTEL_HOST=%s\n' "$LANGFUSE_OTEL_HOST"
+              printf 'LANGFUSE_BASE_URL=%s\n' "$LANGFUSE_OTEL_HOST"
+              printf 'LESSONPACK_LANGFUSE_TRACE_NAME=lessonpack-ai-mvp\n'
+              printf 'LESSONPACK_LANGFUSE_GENERATION_NAME=lessonpack-ai-generation\n'
+              printf 'LESSONPACK_LANGFUSE_SESSION_ID=lessonpack-ai-production\n'
+              printf 'LESSONPACK_LANGFUSE_FLUSH_WAIT_SECONDS=1.0\n'
               printf 'LITELLM_LOG=INFO\n'
               printf 'LECTUREOPS_VECTOR_STORE=supabase\n'
               printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"

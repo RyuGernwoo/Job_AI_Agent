@@ -1,4 +1,4 @@
-﻿# LessonPack AI
+# LessonPack AI
 
 직업훈련 강의 패키지 생성 보조 AI Agent MVP 저장소입니다.
 
@@ -106,11 +106,13 @@ OPENAI_API_KEY=...
 GEMINI_API_KEY=...
 LANGFUSE_PUBLIC_KEY=...
 LANGFUSE_SECRET_KEY=...
+LANGFUSE_OTEL_HOST=https://jp.cloud.langfuse.com
+LANGFUSE_BASE_URL=https://jp.cloud.langfuse.com
 ```
 
 - OpenAI primary 모델은 `OPENAI_API_KEY`를 사용합니다.
 - Gemini fallback은 Google AI Studio API key를 `GEMINI_API_KEY`로 주입하고, LiteLLM 모델명에는 `gemini/` prefix를 사용합니다.
-- Langfuse는 `callbacks: [langfuse_otel]`과 `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`로 tracing을 활성화합니다.
+- Langfuse는 `callbacks: [langfuse_otel]`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_OTEL_HOST`로 tracing을 활성화합니다. 이 프로젝트는 JP 리전 기준으로 `https://jp.cloud.langfuse.com`을 사용합니다.
 - 로컬 오프라인 개발이 필요하면 `config.yaml`에서 `llm.provider: mock`, `model: lessonpack-mock`, `fallback_models: []`, `callbacks: []`로 잠시 바꿉니다.
 
 ## Supabase Vector Store 설정
@@ -145,6 +147,8 @@ pip install -r requirements-dev.txt
 python -m compileall src scripts tests
 python -m unittest discover -s tests
 python scripts\check_llm_provider.py --config config.example.yaml
+# 실제 LLM/Langfuse trace smoke는 .env 키 설정 후 실행합니다.
+python scripts\check_langfuse_trace.py --output outputs\eval\langfuse_trace_smoke.json
 ```
 
 ## Docker 실행
@@ -187,7 +191,7 @@ GitHub Repository Secrets에는 다음 값을 등록합니다.
 | `GEMINI_API_KEY` | Gemini fallback model 호출 |
 | `LANGFUSE_PUBLIC_KEY` | Langfuse tracing public key |
 | `LANGFUSE_SECRET_KEY` | Langfuse tracing secret key |
-| `LANGFUSE_OTEL_HOST` | 선택, Langfuse endpoint override |
+| `LANGFUSE_OTEL_HOST` | 필수, Langfuse 리전 host. JP 예: `https://jp.cloud.langfuse.com` |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase server-side service role key |
 | `LESSONPACK_SUPABASE_TABLE` | 선택, 기본 `lessonpack_chunks` |

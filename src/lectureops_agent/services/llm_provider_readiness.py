@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -6,6 +6,7 @@ from typing import Mapping
 
 from lectureops_agent.config import LessonPackConfig, load_config
 from lectureops_agent.env import load_env_file
+from lectureops_agent.services.langfuse_tracing import configure_langfuse_otel_env
 
 
 HTTP_PROVIDER_NAMES = {"http_chat", "openai_compatible"}
@@ -57,6 +58,7 @@ def check_llm_provider_readiness(
                 "model": model,
                 "fallback_models": fallback_models,
                 "callbacks": callbacks,
+                "langfuse_otel": _langfuse_otel_report(callbacks=callbacks, env=env),
                 "missing": missing,
                 "errors": errors,
                 "next_steps": next_steps,
@@ -121,9 +123,22 @@ def check_llm_provider_readiness(
         "api_key_env": config.llm.api_key_env,
         "fallback_models": config.llm.fallback_models,
         "callbacks": callbacks,
+        "langfuse_otel": _langfuse_otel_report(callbacks=callbacks, env=env),
         "missing": missing,
         "errors": errors,
         "next_steps": next_steps,
+    }
+
+
+
+def _langfuse_otel_report(*, callbacks: list[str], env: Mapping[str, str]) -> dict:
+    result = configure_langfuse_otel_env(callbacks, env=dict(env))
+    return {
+        "enabled": result.enabled,
+        "host": result.host,
+        "endpoint": result.endpoint,
+        "protocol": result.protocol,
+        "headers_configured": result.headers_configured,
     }
 
 
