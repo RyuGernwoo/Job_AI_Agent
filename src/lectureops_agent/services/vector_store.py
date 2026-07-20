@@ -3,15 +3,15 @@ from __future__ import annotations
 import math
 import os
 import re
-import warnings
-from pathlib import Path
 from typing import Any, Protocol
 
+from lectureops_agent.config import VectorStoreConfig
+from lectureops_agent.env import load_env_file
 from lectureops_agent.models.schemas import MaterialChunk
 from lectureops_agent.services.retrieval_service import retrieve_chunks
 
 _VECTOR_DIMENSIONS = 64
-_TOKEN_PATTERN = re.compile(r"[0-9A-Za-z가-힣_]+")
+_TOKEN_PATTERN = re.compile(r"[0-9A-Za-z\uac00-\ud7a3_]+")
 _INTERNAL_METADATA_KEYS = {"project_id", "document_id", "source_name", "source_type", "page"}
 
 
@@ -37,86 +37,98 @@ class InMemoryVectorStore:
         return retrieve_chunks(query=query, chunks=project_chunks, top_k=top_k)
 
 
-class ChromaVectorStore:
-    def __init__(self, *, persist_path: str, collection_name: str) -> None:
-        if not persist_path:
-            raise ValueError("persist_path is required for ChromaVectorStore")
-        if not collection_name:
-            raise ValueError("collection_name is required for ChromaVectorStore")
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message=r".*asyncio\.iscoroutinefunction.*",
-                category=DeprecationWarning,
-            )
+class SupabaseVectorStore:
+    def __init__(
+        self,
+        *,
+        url: str,
+        key: str,
+        table_name: str = "lessonpack_chunks",
+        match_function: str = "match_lessonpack_chunks",
+        match_threshold: float = 0.0,
+        client: Any | None = None,
+    ) -> None:
+        if not url.strip():
+            raise ValueError("Supabase URL is required")
+        if not key.strip():
+            raise ValueError("Supabase key is required")
+        if not table_name.strip():
+            raise ValueError("Supabase table_name is required")
+        if not match_function.strip():
+            raise ValueError("Supabase match_function is required")
+        self.table_name = table_name
+        self.match_function = match_function
+        self.match_threshold = match_threshold
+        if client is None:
             try:
-                import chromadb
+                from supabase import create_client
             except ModuleNotFoundError as exc:
-                raise RuntimeError("chromadb is not installed; run pip install -r requirements.txt") from exc
-
-            self._client = chromadb.PersistentClient(path=str(Path(persist_path)))
-            self._collection = self._client.get_or_create_collection(collection_name)
-
-    def close(self) -> None:
-        close = getattr(self._client, "close", None)
-        if close is not None:
-            close()
+                raise RuntimeError("supabase is not installed; run pip install -r requirements.txt") from exc
+            client = create_client(url, key)
+        self._client = client
 
     def upsert(self, *, project_id: str, chunks: list[MaterialChunk]) -> None:
         if not chunks:
             return
-        self._collection.upsert(
-            ids=[chunk.chunk_id for chunk in chunks],
-            documents=[chunk.text for chunk in chunks],
-            embeddings=[_embed_text(chunk.text) for chunk in chunks],
-            metadatas=[_to_chroma_metadata(project_id, chunk) for chunk in chunks],
-        )
+        rows = [_chunk_to_supabase_row(project_id=project_id, chunk=chunk) for chunk in chunks]
+        response = self._client.table(self.table_name).upsert(rows, on_conflict="chunk_id").execute()
+        _raise_for_supabase_error(response)
 
     def query(self, *, project_id: str, query: str, top_k: int) -> list[MaterialChunk]:
-        result = self._collection.query(
-            query_embeddings=[_embed_text(query)],
-            n_results=top_k,
-            where={"project_id": project_id},
-            include=["documents", "metadatas", "distances"],
+        params = {
+            "query_embedding": _embed_text(query),
+            "match_project_id": project_id,
+            "match_count": top_k,
+            "match_threshold": self.match_threshold,
+        }
+        response = self._client.rpc(self.match_function, params).execute()
+        _raise_for_supabase_error(response)
+        return [_supabase_row_to_chunk(row) for row in _response_data(response)]
+
+
+def create_vector_store_from_config(config: VectorStoreConfig) -> VectorStore:
+    store_type = config.provider.casefold()
+    if store_type in {"memory", "inmemory", "in-memory"}:
+        return InMemoryVectorStore()
+    if store_type == "supabase":
+        return SupabaseVectorStore(
+            url=_get_required_env("SUPABASE_URL"),
+            key=_get_required_env("SUPABASE_SERVICE_ROLE_KEY"),
+            table_name=config.table_name,
+            match_function=config.match_function,
+            match_threshold=config.match_threshold,
         )
-        ids = result.get("ids", [[]])[0]
-        documents = result.get("documents", [[]])[0]
-        metadatas = result.get("metadatas", [[]])[0]
-        chunks: list[MaterialChunk] = []
-        for chunk_id, document, metadata in zip(ids, documents, metadatas, strict=False):
-            metadata = dict(metadata)
-            chunks.append(
-                MaterialChunk(
-                    chunk_id=chunk_id,
-                    project_id=project_id,
-                    document_id=str(metadata.get("document_id", "unknown")),
-                    source_name=str(metadata.get("source_name", "unknown")),
-                    source_type=str(metadata.get("source_type", "txt")),
-                    page=_parse_optional_page(metadata.get("page")),
-                    text=document,
-                    metadata=_from_chroma_metadata(metadata),
-                )
-            )
-        return chunks
+    raise ValueError(f"unsupported vector store: {config.provider}")
 
 
 def create_vector_store_from_env() -> VectorStore:
+    load_env_file()
     store_type = os.getenv("LECTUREOPS_VECTOR_STORE", "memory").strip().casefold()
     if store_type in {"", "memory", "inmemory", "in-memory"}:
         return InMemoryVectorStore()
-    if store_type == "chroma":
-        persist_path = _get_required_env("LECTUREOPS_CHROMA_PATH")
-        collection_name = _get_required_env("LECTUREOPS_CHROMA_COLLECTION")
-        return ChromaVectorStore(persist_path=persist_path, collection_name=collection_name)
+    if store_type == "supabase":
+        return SupabaseVectorStore(
+            url=_get_required_env("SUPABASE_URL"),
+            key=_get_required_env("SUPABASE_SERVICE_ROLE_KEY"),
+            table_name=os.getenv("LESSONPACK_SUPABASE_TABLE", "lessonpack_chunks"),
+            match_function=os.getenv("LESSONPACK_SUPABASE_MATCH_FUNCTION", "match_lessonpack_chunks"),
+            match_threshold=_optional_float_env("LESSONPACK_SUPABASE_MATCH_THRESHOLD", default=0.0),
+        )
     raise ValueError(f"unsupported vector store: {store_type}")
 
 
 def _get_required_env(name: str) -> str:
     value = os.getenv(name)
     if value is None or not value.strip():
-        raise ValueError(f"{name} is required when LECTUREOPS_VECTOR_STORE=chroma")
+        raise ValueError(f"{name} is required when LECTUREOPS_VECTOR_STORE=supabase")
     return value
+
+
+def _optional_float_env(name: str, *, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    return float(value)
 
 
 def _embed_text(text: str) -> list[float]:
@@ -134,27 +146,54 @@ def _tokenize(text: str) -> list[str]:
     return _TOKEN_PATTERN.findall(text.casefold())
 
 
-def _to_chroma_metadata(project_id: str, chunk: MaterialChunk) -> dict[str, str | int | float | bool]:
-    metadata: dict[str, str | int | float | bool] = {
+def _chunk_to_supabase_row(*, project_id: str, chunk: MaterialChunk) -> dict[str, Any]:
+    return {
+        "chunk_id": chunk.chunk_id,
         "project_id": project_id,
         "document_id": chunk.document_id,
         "source_name": chunk.source_name,
         "source_type": chunk.source_type,
+        "page": chunk.page,
+        "content": chunk.text,
+        "metadata": _external_metadata(chunk.metadata),
+        "embedding": _embed_text(chunk.text),
     }
-    if chunk.page is not None:
-        metadata["page"] = chunk.page
-    for key, value in chunk.metadata.items():
-        if key in _INTERNAL_METADATA_KEYS:
-            continue
-        if isinstance(value, str | int | float | bool):
-            metadata[key] = value
-        elif value is not None:
-            metadata[key] = str(value)
-    return metadata
 
 
-def _from_chroma_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+def _supabase_row_to_chunk(row: dict[str, Any]) -> MaterialChunk:
+    return MaterialChunk(
+        chunk_id=str(row["chunk_id"]),
+        project_id=str(row["project_id"]),
+        document_id=str(row.get("document_id", "unknown")),
+        source_name=str(row.get("source_name", "unknown")),
+        source_type=str(row.get("source_type", "txt")),
+        page=_parse_optional_page(row.get("page")),
+        text=str(row.get("content") or row.get("text") or ""),
+        metadata=_external_metadata(row.get("metadata") or {}),
+    )
+
+
+def _external_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in metadata.items() if key not in _INTERNAL_METADATA_KEYS}
+
+
+def _response_data(response: Any) -> list[dict[str, Any]]:
+    data = getattr(response, "data", None)
+    if data is None and isinstance(response, dict):
+        data = response.get("data")
+    if data is None:
+        return []
+    if not isinstance(data, list):
+        raise RuntimeError("Supabase response data must be a list")
+    return data
+
+
+def _raise_for_supabase_error(response: Any) -> None:
+    error = getattr(response, "error", None)
+    if error is None and isinstance(response, dict):
+        error = response.get("error")
+    if error:
+        raise RuntimeError(f"Supabase vector store request failed: {error}")
 
 
 def _parse_optional_page(value: Any) -> int | None:

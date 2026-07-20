@@ -490,7 +490,7 @@ KOSENA 자료는 AI 응답을 그대로 사용하지 않고, 검증·수정·재
 | 접근 | 장점 | 단점 | 판단 |
 |---|---|---|---|
 | A. Dify 기반 빠른 조립 | RAG와 워크플로우를 빠르게 구성 | 코드 포트폴리오로 보여줄 부분이 줄어듦 | 발표용 데모에는 좋음 |
-| B. FastAPI + Chroma/LangChain 또는 LlamaIndex | 직접 구현 경험을 보여주기 좋음, 구조 설명 가능 | RAG 품질 튜닝 부담 | **추천** |
+| B. FastAPI + Supabase(pgvector) + LiteLLM | 직접 구현 경험과 운영형 DB 구조를 함께 보여주기 좋음 | Supabase schema/RPC 설정 부담 | **추천** |
 | C. RAGFlow 직접 도입 | 기능이 강력하고 근거 인용 구조가 좋음 | Docker·리소스·학습 비용이 큼 | 한 달 MVP에는 보류 |
 
 ### 14.2 최종 추천
@@ -703,7 +703,7 @@ KOSENA 자료는 AI 응답을 그대로 사용하지 않고, 검증·수정·재
 | 샘플 데이터 준비 | 커리큘럼 1개, NCS 텍스트 1개, 교재 일부 |
 | 파일 파싱 구현 | PDF/DOCX/TXT 중 최소 TXT + PDF |
 | chunking 구현 | chunk ID, 원문 위치, 문서명 저장 |
-| vector DB 연결 | Chroma 또는 대체 vector store |
+| vector DB 연결 | Supabase(pgvector) vector store |
 | retrieval test | 차시명 입력 시 관련 문단 검색 결과 |
 
 완료 기준:
@@ -848,7 +848,7 @@ KOSENA 자료는 AI 응답을 그대로 사용하지 않고, 검증·수정·재
 | NCS 정합성 부족 | NCS 데이터 구조를 자동 이해하기 어려움 | NCS 능력단위는 수동 입력 필드로 시작 |
 | 출력 품질 편차 | 프롬프트가 모호함 | JSON schema와 템플릿 고정 |
 | UI 구현 지연 | 프론트엔드까지 만들면 시간 부족 | Streamlit 또는 단순 HTML로 시작 |
-| RAG 구현 난이도 | embedding/vector DB 설정 부담 | Dify 참고 또는 Chroma 기반 최소 구현 |
+| RAG 구현 난이도 | embedding/vector DB 설정 부담 | Supabase migration과 InMemory 테스트 adapter로 단계적 구현 |
 
 ---
 

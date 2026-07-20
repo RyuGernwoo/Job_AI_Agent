@@ -1,6 +1,8 @@
-﻿import sys
+﻿import os
+import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import fitz
 from fastapi.testclient import TestClient
@@ -45,6 +47,11 @@ def make_pdf_bytes(text: str) -> bytes:
     pdf_bytes = doc.tobytes()
     doc.close()
     return pdf_bytes
+
+
+def create_isolated_test_client() -> TestClient:
+    with patch.dict(os.environ, {"LESSONPACK_ENV_FILE": str(ROOT / "missing-test.env")}, clear=True):
+        return TestClient(create_app())
 
 
 class Stage1CoreTests(unittest.TestCase):
@@ -106,7 +113,7 @@ class Stage1CoreTests(unittest.TestCase):
         )
 
     def test_fastapi_health_and_project_create(self):
-        client = TestClient(create_app())
+        client = create_isolated_test_client()
 
         health = client.get("/health")
         self.assertEqual(health.status_code, 200)
@@ -120,7 +127,7 @@ class Stage1CoreTests(unittest.TestCase):
         self.assertIn("project_id", body)
 
     def test_fastapi_material_upload_chunks_markdown_file(self):
-        client = TestClient(create_app())
+        client = create_isolated_test_client()
         created = client.post("/api/projects", json=sample_project_create().model_dump())
         project_id = created.json()["project_id"]
 
@@ -143,7 +150,7 @@ class Stage1CoreTests(unittest.TestCase):
         self.assertEqual(body["chunks"][0]["chunk_id"], f"{body['document_id']}-p000-c001")
 
     def test_fastapi_material_upload_extracts_pdf_text(self):
-        client = TestClient(create_app())
+        client = create_isolated_test_client()
         created = client.post("/api/projects", json=sample_project_create().model_dump())
         project_id = created.json()["project_id"]
         pdf_bytes = make_pdf_bytes("PDF functions return output for training materials.")
@@ -160,7 +167,7 @@ class Stage1CoreTests(unittest.TestCase):
         self.assertIn("PDF functions return output", body["chunks"][0]["text"])
 
     def test_fastapi_retrieve_returns_uploaded_chunks_by_query(self):
-        client = TestClient(create_app())
+        client = create_isolated_test_client()
         created = client.post("/api/projects", json=sample_project_create().model_dump())
         project_id = created.json()["project_id"]
         client.post(
@@ -186,7 +193,7 @@ class Stage1CoreTests(unittest.TestCase):
         self.assertEqual(chunks[0]["project_id"], project_id)
 
     def test_fastapi_review_moves_package_from_draft_to_approved(self):
-        client = TestClient(create_app())
+        client = create_isolated_test_client()
         created = client.post("/api/projects", json=sample_project_create().model_dump())
         project_id = created.json()["project_id"]
         chunk = MaterialChunk(

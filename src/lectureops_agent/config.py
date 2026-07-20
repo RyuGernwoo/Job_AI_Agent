@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
@@ -7,17 +7,21 @@ from pydantic import BaseModel, Field
 
 
 class LLMConfig(BaseModel):
-    provider: Literal["mock", "http_chat", "openai_compatible"]
+    provider: Literal["mock", "http_chat", "openai_compatible", "litellm"]
     model: str = Field(min_length=1)
     base_url: str | None = None
     api_key_env: str | None = None
     timeout_seconds: int | float | None = Field(default=None, gt=0)
+    fallback_models: list[str] = Field(default_factory=list)
+    callbacks: list[str] = Field(default_factory=list)
+    success_callbacks: list[str] = Field(default_factory=list)
 
 
 class VectorStoreConfig(BaseModel):
-    provider: Literal["memory", "chroma"]
-    persist_path: str | None = None
-    collection_name: str | None = None
+    provider: Literal["memory", "supabase"]
+    table_name: str = "lessonpack_chunks"
+    match_function: str = "match_lessonpack_chunks"
+    match_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class LessonPackConfig(BaseModel):

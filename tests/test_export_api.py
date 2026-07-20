@@ -1,6 +1,8 @@
-﻿import sys
+﻿import os
+import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -21,9 +23,14 @@ def sample_project_create() -> ProjectCreate:
     )
 
 
+def create_isolated_test_client() -> TestClient:
+    with patch.dict(os.environ, {"LESSONPACK_ENV_FILE": str(ROOT / "missing-test.env")}, clear=True):
+        return TestClient(create_app())
+
+
 class ExportApiTests(unittest.TestCase):
     def test_fastapi_export_docx_requires_approved_package(self):
-        client = TestClient(create_app())
+        client = create_isolated_test_client()
         created = client.post("/api/projects", json=sample_project_create().model_dump())
         project_id = created.json()["project_id"]
         chunk = MaterialChunk(

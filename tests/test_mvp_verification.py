@@ -1,9 +1,11 @@
 import csv
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -21,15 +23,17 @@ class MVPVerificationTests(unittest.TestCase):
             output_dir = Path(tmp) / "outputs" / "eval"
             self._write_dataset(data_dir)
 
-            report = run_mvp_verification(
-                data_dir=data_dir,
-                output_dir=output_dir,
-                demo_case_id="g-demo",
-                retrieval_top_k=1,
-                chunks_per_source=1,
-                min_retrieval_hit_rate=1.0,
-                min_generation_case_pass_rate=1.0,
-            )
+            missing_env = Path(tmp) / "missing.env"
+            with patch.dict(os.environ, {"LESSONPACK_ENV_FILE": str(missing_env)}, clear=True):
+                report = run_mvp_verification(
+                    data_dir=data_dir,
+                    output_dir=output_dir,
+                    demo_case_id="g-demo",
+                    retrieval_top_k=1,
+                    chunks_per_source=1,
+                    min_retrieval_hit_rate=1.0,
+                    min_generation_case_pass_rate=1.0,
+                )
             markdown = render_mvp_verification_markdown(report)
 
             self.assertTrue(report["passed"], report)

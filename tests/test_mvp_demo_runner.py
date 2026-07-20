@@ -1,8 +1,10 @@
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -19,12 +21,14 @@ class MVPDemoRunnerTests(unittest.TestCase):
             output_dir = Path(tmp) / "outputs" / "demo"
             self._write_demo_dataset(data_dir)
 
-            report = run_mvp_demo(
-                data_dir=data_dir,
-                output_dir=output_dir,
-                case_id="g-demo",
-                chunks_per_source=1,
-            )
+            missing_env = Path(tmp) / "missing.env"
+            with patch.dict(os.environ, {"LESSONPACK_ENV_FILE": str(missing_env)}, clear=True):
+                report = run_mvp_demo(
+                    data_dir=data_dir,
+                    output_dir=output_dir,
+                    case_id="g-demo",
+                    chunks_per_source=1,
+                )
 
             self.assertTrue(report["evaluation"]["passed"], report)
             self.assertEqual(report["package_status"], "approved")

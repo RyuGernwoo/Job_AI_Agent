@@ -2,18 +2,18 @@
 
 직업훈련 강의 패키지 생성 보조 AI Agent MVP 저장소입니다.
 
-이 프로젝트는 직업훈련 강사가 강의 준비 과정에서 반복적으로 작성하는 교안, 실습 과제, 평가 문항 초안을 AI로 생성하고, 사람이 검토한 뒤 문서 산출물로 저장하는 서비스를 목표로 합니다. 현재 저장소는 기획 문서와 1단계 FastAPI 구현 골격을 함께 포함합니다.
+이 프로젝트는 직업훈련 강사가 강의 준비 과정에서 반복적으로 작성하는 교안, 실습 과제, 평가 문항 초안을 AI로 생성하고, 사람이 검토한 뒤 문서 산출물로 저장하는 서비스를 목표로 합니다. 현재 저장소는 기획 문서와 FastAPI 기반 MVP 구현을 함께 포함합니다.
 
 ## 프로젝트 목표
 
 - 1개월 안에 구현 가능한 MVP 범위를 유지합니다.
 - 개인 프로젝트 수준에 맞게 기능을 좁혀 end-to-end 흐름을 먼저 만듭니다.
-- RAG 기반 교안·실습·평가 생성, HITL 검토, DOCX 산출을 핵심 흐름으로 둡니다.
-- 실제 구현은 mock provider와 검증 가능한 schema부터 시작합니다.
+- RAG 기반 교안·실습·평가 생성, HITL 검토, DOCX/PPTX 산출을 핵심 흐름으로 둡니다.
+- Mock provider로 테스트 가능성을 유지하고, LiteLLM으로 실제 모델 실증을 분리합니다.
 
 ## 현재 구현 상태
 
-2026-07-16 기준 구현된 범위는 다음과 같습니다.
+2026-07-20 기준 구현된 범위는 다음과 같습니다.
 
 - FastAPI 앱 skeleton
 - `GET /health`
@@ -29,14 +29,18 @@
 - Pydantic 기반 Project, MaterialChunk, LessonPackage schema
 - TXT/MD/PDF 업로드 텍스트 추출 및 chunk 생성
 - 업로드된 chunk 대상 metadata-aware keyword retrieval
-- Chroma 확장을 위한 VectorStore 경계
-- Chroma PersistentClient 런타임 검증
+- Supabase(pgvector) 확장을 위한 VectorStore 경계
+- Supabase RPC 기반 VectorStore adapter 검증
 - mock LLM provider 기반 교안·실습·평가 패키지 생성
 - `draft -> reviewed -> approved` 검토 상태 전환
 - approved 패키지 DOCX/PPTX export endpoint
 - generation log 조회 endpoint
-- `config.example.yaml` 기반 명시 설정 로더
+- `config.example.yaml` 및 `config.yaml` 기반 명시 설정 로더
 - `http_chat` 외부 LLM provider adapter
+- LiteLLM provider adapter
+- OpenAI primary + Gemini fallback 모델 라우팅 설정
+- Langfuse OTEL callback 연동 설정
+- `.env.example` 기반 로컬 비밀값 주입 구조
 - `scripts/prepare_mvp_dataset.py` 기반 MVP 데이터셋 준비 자동화
 - `data/processed/chunks.jsonl` 로더
 - processed dataset VectorStore ingest 스크립트
@@ -49,7 +53,7 @@
 - Streamlit 데모 UI
 - `unittest` 기반 회귀 테스트
 
-아직 구현하지 않은 범위는 실제 API 키 기반 LLM 실증, RAGAS 평가 자동화입니다.
+아직 구현하지 않은 범위는 실제 API 키 기반 장시간 품질 실증, LiteLLM Proxy/팀별 예산 관리, RAGAS 평가 자동화입니다.
 
 ## 실행 방법
 
@@ -61,12 +65,14 @@ python -m venv .venv
 pip install -r requirements.txt
 $env:PYTHONPATH="src"
 
-# 권장: config.example.yaml을 config.yaml로 복사한 뒤 명시 설정으로 실행합니다.
+# 권장: 로컬 설정 파일을 복사한 뒤 .env를 기준으로 실행합니다.
+Copy-Item .env.example .env
 Copy-Item config.example.yaml config.yaml
-$env:LESSONPACK_CONFIG="config.yaml"
 
-# http_chat provider 사용 시 config.yaml의 llm.api_key_env에 맞춰 API key를 설정합니다.
-# $env:LESSONPACK_HTTP_API_KEY="..."
+# 실제 LLMOps 실증 시 .env에 OPENAI_API_KEY, GEMINI_API_KEY,
+# LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY를 채웁니다.
+# config.yaml 기본값은 llm.provider=litellm, primary=gpt-4o-mini,
+# fallback=gemini/gemini-2.0-flash, callback=langfuse_otel입니다.
 
 python -m uvicorn lectureops_agent.app.main:app --reload
 python -m streamlit run src/lectureops_agent/ui/streamlit_app.py --server.port 8501
@@ -78,9 +84,61 @@ python -m streamlit run src/lectureops_agent/ui/streamlit_app.py --server.port 8
 http://127.0.0.1:8000/docs
 ```
 
+## LLMOps 설정
+
+기본 운영 경로는 LiteLLM SDK입니다. `LESSONPACK_CONFIG=config.yaml`이 설정되어 있으면 `config.yaml`의 `llm.provider`가 우선 적용됩니다.
+
+```yaml
+llm:
+  provider: litellm
+  model: gpt-4o-mini
+  fallback_models:
+    - gemini/gemini-2.0-flash
+  timeout_seconds: 30
+  callbacks:
+    - langfuse_otel
+```
+
+`.env`에는 실제 키만 로컬로 입력합니다. `.env.example`은 placeholder만 포함하며 Git에 커밋하지 않는 `.env`를 만드는 기준 파일입니다.
+
+```powershell
+OPENAI_API_KEY=...
+GEMINI_API_KEY=...
+LANGFUSE_PUBLIC_KEY=...
+LANGFUSE_SECRET_KEY=...
+```
+
+- OpenAI primary 모델은 `OPENAI_API_KEY`를 사용합니다.
+- Gemini fallback은 Google AI Studio API key를 `GEMINI_API_KEY`로 주입하고, LiteLLM 모델명에는 `gemini/` prefix를 사용합니다.
+- Langfuse는 `callbacks: [langfuse_otel]`과 `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`로 tracing을 활성화합니다.
+- 로컬 오프라인 개발이 필요하면 `config.yaml`에서 `llm.provider: mock`, `model: lessonpack-mock`, `fallback_models: []`, `callbacks: []`로 잠시 바꿉니다.
+
+## Supabase Vector Store 설정
+
+운영형 영속 저장소는 Supabase Postgres + pgvector를 사용합니다. 로컬 단위 테스트는 `memory` provider로 유지하고, 실제 배포 또는 실증에서는 `config.yaml`과 `.env`를 다음처럼 전환합니다.
+
+```yaml
+vector_store:
+  provider: supabase
+  table_name: lessonpack_chunks
+  match_function: match_lessonpack_chunks
+  match_threshold: 0.0
+```
+
+```powershell
+LECTUREOPS_VECTOR_STORE=supabase
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+LESSONPACK_SUPABASE_TABLE=lessonpack_chunks
+LESSONPACK_SUPABASE_MATCH_FUNCTION=match_lessonpack_chunks
+LESSONPACK_SUPABASE_MATCH_THRESHOLD=0.0
+```
+
+Supabase 프로젝트에서는 먼저 `supabase/migrations/001_lessonpack_vectors.sql`을 SQL Editor에서 실행합니다. 이 migration은 `vector` extension, `lessonpack_chunks` table, HNSW cosine index, `match_lessonpack_chunks` RPC 함수를 생성합니다. `SUPABASE_SERVICE_ROLE_KEY`는 서버 전용 비밀키이므로 브라우저나 공개 저장소에 노출하지 않습니다.
+
 ## 테스트 방법
 
-현재 테스트는 추가 설치 없이 표준 라이브러리 `unittest`로 실행합니다.
+현재 테스트는 표준 라이브러리 `unittest`로 실행합니다. LiteLLM/Langfuse 실증을 위해서는 `requirements.txt`의 의존성을 설치해야 합니다.
 
 ```powershell
 python -m unittest discover -s tests
@@ -147,21 +205,21 @@ python scripts\evaluate_generation.py --min-case-pass-rate 1.0 --report outputs\
 
 현재 mock provider 기준 baseline은 case pass rate `1.0`입니다.
 
-실제 LLM provider 실증 전에는 다음 명령으로 설정과 API key 환경변수 준비 상태를 확인합니다.
+실제 LiteLLM provider 실증 전에는 다음 명령으로 설정과 API key 환경변수 준비 상태를 확인합니다.
 
 ```powershell
 python scripts\check_llm_provider.py --config config.yaml --require-real
+python scripts\check_llm_provider.py --config config.yaml --require-real --probe
 ```
 
 실제 provider로 generation Gold Set을 평가할 때는 다음처럼 실행합니다.
 
 ```powershell
-$env:LESSONPACK_CONFIG="config.yaml"
-$env:LESSONPACK_HTTP_API_KEY="..."
+# .env에서 LESSONPACK_CONFIG, OPENAI_API_KEY, GEMINI_API_KEY, LANGFUSE_* 값을 설정합니다.
 python scripts\evaluate_generation.py --require-real-llm --min-case-pass-rate 1.0 --report outputs\eval\generation_real_llm_report.json
 ```
 
-API key는 Git에 커밋하지 않고 환경변수로만 주입합니다.
+API key는 `.env` 또는 OS 환경변수로만 주입하고 Git에 커밋하지 않습니다.
 
 발표/실증용 MVP 데모 산출물은 다음 명령으로 생성합니다.
 
@@ -228,9 +286,9 @@ docs/
 - API 서버: FastAPI
 - 구조화 검증: Pydantic
 - 문서 처리: PyMuPDF 기반 PDF 추출, python-docx DOCX 산출, python-pptx PPTX 산출
-- Vector DB: InMemory 기본값, Chroma PersistentClient adapter 검증 완료
+- Vector DB: InMemory 테스트 기본값, Supabase(pgvector) 운영 adapter 검증
 - 검색: 본문, source metadata, section, tags, 한국어/영어 개념 동의어 기반 keyword scoring
-- LLM: provider adapter 경계, mock provider, `http_chat` provider, generation log 우선
+- LLM: provider adapter 경계, mock provider, `http_chat` provider, LiteLLM provider, OpenAI primary + Gemini fallback, Langfuse tracing, generation log 우선
 - UI: Swagger UI 우선, 이후 Streamlit 확장
 - 평가: 자체 Gold Set, retrieval hit rate, ID 기반 context precision/recall, generation case pass rate, citation coverage, 사람 평가 루브릭 우선, 이후 RAGAS 검토
 

@@ -1,6 +1,8 @@
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -80,7 +82,8 @@ class GenerationLogTests(unittest.TestCase):
 
     def test_fastapi_generate_stores_generation_log(self):
         provider = StaticLLMProvider()
-        client = TestClient(create_app(llm_provider=provider))
+        with patch.dict(os.environ, {"LESSONPACK_ENV_FILE": str(ROOT / "missing-test.env")}, clear=True):
+            client = TestClient(create_app(llm_provider=provider))
         created = client.post("/api/projects", json=sample_project_create().model_dump())
         project_id = created.json()["project_id"]
         chunk = sample_chunk(project_id)

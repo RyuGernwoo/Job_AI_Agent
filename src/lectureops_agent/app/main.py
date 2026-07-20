@@ -6,6 +6,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from lectureops_agent.config import LessonPackConfig, load_config
+from lectureops_agent.env import load_env_file
 from lectureops_agent.models.schemas import (
     GenerateRequest,
     GenerationLog,
@@ -23,7 +24,7 @@ from lectureops_agent.services.generation_service import generate_lesson_package
 from lectureops_agent.services.llm_provider import LLMProvider, create_llm_provider_from_config, create_llm_provider_from_env
 from lectureops_agent.services.parser_service import decode_text_material
 from lectureops_agent.services.review_service import apply_review_patch
-from lectureops_agent.services.vector_store import VectorStore, create_vector_store_from_env
+from lectureops_agent.services.vector_store import VectorStore, create_vector_store_from_config, create_vector_store_from_env
 
 CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
@@ -36,6 +37,7 @@ def create_app(
     llm_provider: LLMProvider | None = None,
     app_config: LessonPackConfig | None = None,
 ) -> FastAPI:
+    load_env_file()
     app = FastAPI(
         title="LessonPack AI",
         description="Job training lesson package generation assistant MVP",
@@ -45,7 +47,7 @@ def create_app(
     chunk_size_chars = config.chunk_size_chars if config else CHUNK_SIZE_CHARS
     chunk_overlap_chars = config.chunk_overlap_chars if config else CHUNK_OVERLAP_CHARS
     projects: dict[str, Project] = {}
-    vector_store = vector_store or create_vector_store_from_env()
+    vector_store = vector_store or (create_vector_store_from_config(config.vector_store) if config else create_vector_store_from_env())
     if llm_provider is None:
         llm_provider = create_llm_provider_from_config(config) if config else create_llm_provider_from_env()
     project_document_counts: dict[str, int] = {}

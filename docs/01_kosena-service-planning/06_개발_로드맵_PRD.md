@@ -142,7 +142,7 @@
 | 샘플 데이터 준비 | 커리큘럼 1개, NCS 텍스트 1개, 교재 일부 |
 | 파일 파싱 구현 | PDF/DOCX/TXT 중 최소 TXT + PDF |
 | chunking 구현 | chunk ID, 원문 위치, 문서명 저장 |
-| vector DB 연결 | Chroma 또는 대체 vector store |
+| vector DB 연결 | Supabase(pgvector) vector store |
 | retrieval test | 차시명 입력 시 관련 문단 검색 결과 |
 
 완료 기준:

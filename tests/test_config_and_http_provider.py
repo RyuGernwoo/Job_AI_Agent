@@ -16,7 +16,12 @@ from fastapi.testclient import TestClient
 from lectureops_agent.app.main import create_app
 from lectureops_agent.config import LessonPackConfig, load_config
 from lectureops_agent.models.schemas import NCSUnit, ProjectCreate
-from lectureops_agent.services.llm_provider import HTTPChatCompletionsProvider, create_llm_provider_from_config
+from lectureops_agent.services.vector_store import InMemoryVectorStore
+from lectureops_agent.services.llm_provider import (
+    HTTPChatCompletionsProvider,
+    LiteLLMProvider,
+    create_llm_provider_from_config,
+)
 
 
 class ChatCompletionHandler(BaseHTTPRequestHandler):
@@ -75,7 +80,40 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
         self.assertEqual(config.retrieval_top_k, 4)
         self.assertEqual(config.llm.provider, "mock")
         self.assertEqual(config.llm.model, "lessonpack-mock")
+        self.assertEqual(config.llm.fallback_models, [])
+        self.assertEqual(config.llm.callbacks, [])
         self.assertEqual(config.vector_store.provider, "memory")
+
+    def test_load_config_reads_litellm_routing_values(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "chunk_size_chars: 800",
+                        "chunk_overlap_chars: 120",
+                        "retrieval_top_k: 5",
+                        "llm:",
+                        "  provider: litellm",
+                        "  model: gpt-4o-mini",
+                        "  fallback_models:",
+                        "    - gemini/gemini-2.0-flash",
+                        "  timeout_seconds: 30",
+                        "  callbacks:",
+                        "    - langfuse_otel",
+                        "vector_store:",
+                        "  provider: memory",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            config = load_config(config_path)
+
+        self.assertEqual(config.llm.provider, "litellm")
+        self.assertEqual(config.llm.model, "gpt-4o-mini")
+        self.assertEqual(config.llm.fallback_models, ["gemini/gemini-2.0-flash"])
+        self.assertEqual(config.llm.callbacks, ["langfuse_otel"])
 
     def test_create_app_uses_configured_chunk_size_for_uploads(self):
         config = LessonPackConfig.model_validate(
@@ -105,6 +143,7 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
 
         self.assertEqual(uploaded.status_code, 200)
         self.assertGreater(uploaded.json()["chunk_count"], 1)
+
     def test_create_llm_provider_from_config_builds_http_chat_provider(self):
         config = LessonPackConfig.model_validate(
             {
@@ -127,6 +166,30 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
 
         self.assertIsInstance(provider, HTTPChatCompletionsProvider)
         self.assertEqual(provider.name, "http_chat:test-model")
+
+    def test_create_llm_provider_from_config_builds_litellm_provider(self):
+        config = LessonPackConfig.model_validate(
+            {
+                "chunk_size_chars": 800,
+                "chunk_overlap_chars": 120,
+                "retrieval_top_k": 5,
+                "llm": {
+                    "provider": "litellm",
+                    "model": "gpt-4o-mini",
+                    "fallback_models": ["gemini/gemini-2.0-flash"],
+                    "timeout_seconds": 30,
+                    "callbacks": ["langfuse_otel"],
+                },
+                "vector_store": {"provider": "memory"},
+            }
+        )
+
+        provider = create_llm_provider_from_config(config)
+
+        self.assertIsInstance(provider, LiteLLMProvider)
+        self.assertEqual(provider.model, "gpt-4o-mini")
+        self.assertEqual(provider.fallback_models, ["gemini/gemini-2.0-flash"])
+        self.assertEqual(provider.callbacks, ["langfuse_otel"])
 
     def test_http_chat_provider_posts_prompt_and_returns_message_content(self):
         server = HTTPServer(("127.0.0.1", 0), ChatCompletionHandler)
@@ -171,9 +234,11 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
             }
         )
 
-        with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(ValueError, "LESSONPACK_MISSING_API_KEY"):
-                create_llm_provider_from_config(config)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_env_file = Path(tmpdir) / "missing.env"
+            with patch.dict(os.environ, {"LESSONPACK_ENV_FILE": str(missing_env_file)}, clear=True):
+                with self.assertRaisesRegex(ValueError, "LESSONPACK_MISSING_API_KEY"):
+                    create_llm_provider_from_config(config)
 
 
 if __name__ == "__main__":
