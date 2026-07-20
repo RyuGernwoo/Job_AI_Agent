@@ -1,0 +1,32 @@
+﻿name: lessonpack-ai
+
+services:
+  lessonpack-api:
+    image: ${APP_IMAGE:-lessonpack-ai:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lessonpack-api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_NAME: ${APP_NAME:-lessonpack-ai}
+      APP_ENV: ${APP_ENV:-production}
+      PYTHONPATH: /app/src
+      LESSONPACK_CONFIG: ${LESSONPACK_CONFIG-config.yaml}
+    ports:
+      - "${SERVICE_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

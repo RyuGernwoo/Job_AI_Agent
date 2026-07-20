@@ -1,4 +1,4 @@
-# LessonPack AI
+﻿# LessonPack AI
 
 직업훈련 강의 패키지 생성 보조 AI Agent MVP 저장소입니다.
 
@@ -138,12 +138,63 @@ Supabase 프로젝트에서는 먼저 `supabase/migrations/001_lessonpack_vector
 
 ## 테스트 방법
 
-현재 테스트는 표준 라이브러리 `unittest`로 실행합니다. LiteLLM/Langfuse 실증을 위해서는 `requirements.txt`의 의존성을 설치해야 합니다.
+현재 테스트는 표준 라이브러리 `unittest`로 실행합니다. 로컬/CI 테스트에는 TestClient 의존성인 `httpx`가 포함된 `requirements-dev.txt` 사용을 권장합니다.
 
 ```powershell
+pip install -r requirements-dev.txt
+python -m compileall src scripts tests
 python -m unittest discover -s tests
+python scripts\check_llm_provider.py --config config.example.yaml
 ```
 
+## Docker 실행
+
+API 서버는 `lessonpack-api` 단일 컨테이너로 실행합니다. Streamlit UI는 1차 GCE 배포 범위에서 제외하고, FastAPI API를 먼저 안정화합니다.
+
+```powershell
+Copy-Item .env.example .env
+# .env에 필요한 OPENAI_API_KEY, GEMINI_API_KEY, LANGFUSE_*, SUPABASE_* 값을 입력합니다.
+docker compose up -d --build
+curl.exe -fL http://localhost:8000/health
+python scripts\check_deployment.py http://localhost:8000
+docker compose ps
+docker compose logs lessonpack-api --tail 100
+docker compose down
+```
+
+## GCE Docker CI/CD 배포
+
+배포 계획과 구현 기준은 [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)를 따릅니다.
+
+구축된 CI/CD 산출물은 다음과 같습니다.
+
+- `Dockerfile`: FastAPI production image build
+- `.dockerignore`: 비밀값, 로컬 데이터, 생성 산출물 image 제외
+- `docker-compose.yml`: 로컬 및 GCE 서버 실행 단위
+- `.github/workflows/ci.yml`: compile, provider config check, unittest, Docker build check
+- `.github/workflows/cd.yml`: GHCR image push, GCE SSH 배포, `/health` 검증, rollback
+- `scripts/check_deployment.py`: 배포된 API health smoke check
+
+GitHub Repository Secrets에는 다음 값을 등록합니다.
+
+| Secret | 용도 |
+| --- | --- |
+| `GCE_HOST` | GCE VM 외부 IP 또는 도메인 |
+| `GCE_USERNAME` | SSH 접속 사용자명 |
+| `GCE_SSH_KEY` | SSH 개인키 전체 내용 |
+| `SERVICE_PORT` | 선택, 기본 `8000` |
+| `OPENAI_API_KEY` | OpenAI primary model 호출 |
+| `GEMINI_API_KEY` | Gemini fallback model 호출 |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse tracing public key |
+| `LANGFUSE_SECRET_KEY` | Langfuse tracing secret key |
+| `LANGFUSE_OTEL_HOST` | 선택, Langfuse endpoint override |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase server-side service role key |
+| `LESSONPACK_SUPABASE_TABLE` | 선택, 기본 `lessonpack_chunks` |
+| `LESSONPACK_SUPABASE_MATCH_FUNCTION` | 선택, 기본 `match_lessonpack_chunks` |
+| `LESSONPACK_SUPABASE_MATCH_THRESHOLD` | 선택, 기본 `0.0` |
+
+GCE 서버는 Ubuntu VM에 Docker Engine과 Docker Compose plugin이 설치되어 있어야 합니다. CD workflow는 서버의 `/home/<GCE_USERNAME>/lessonpack-ai` 디렉터리에 `.env`, `docker-compose.yml`, `.current_image`, `.previous_image`를 관리하고, 서버에서 직접 build하지 않고 GHCR image를 pull합니다.
 ## 데이터셋 준비
 
 원천 데이터는 `data/raw/` 아래의 로컬 파일로 관리하며 Git에 포함하지 않습니다. 작은 합성 검증 데이터인 `data/gold/`만 커밋 대상으로 둡니다.
@@ -258,6 +309,7 @@ docs/
     02_데이터셋_선정_계획서.md
     03_검증_프로토콜.md
     04_데이터셋_활용_전처리_계획서.md
+    05_GCE_Docker_CICD_배포_계획서.md
   90_reference/
     KOSENA_AI_서비스기획.md
 ```
@@ -270,6 +322,7 @@ docs/
 - [데이터셋 선정 계획서](docs/02_implementation-readiness/02_데이터셋_선정_계획서.md)
 - [검증 프로토콜](docs/02_implementation-readiness/03_검증_프로토콜.md)
 - [데이터셋 활용 및 전처리 계획서](docs/02_implementation-readiness/04_데이터셋_활용_전처리_계획서.md)
+- [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
 
 ## KOSENA 산출물
 

@@ -1,0 +1,377 @@
+﻿name: LessonPack AI CD
+
+on:
+  workflow_run:
+    workflows:
+      - LessonPack AI CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Deployment mode"
+        required: true
+        default: "deploy"
+        type: choice
+        options:
+          - deploy
+          - rollback
+      image:
+        description: "Full image reference for rollback. Empty uses server .previous_image."
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/lessonpack-api
+
+jobs:
+  resolve:
+    name: Resolve Deployment
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      ref: ${{ steps.plan.outputs.ref }}
+      image: ${{ steps.plan.outputs.image }}
+      image_repo: ${{ steps.plan.outputs.image_repo }}
+      should_build: ${{ steps.plan.outputs.should_build }}
+      should_deploy: ${{ steps.plan.outputs.should_deploy }}
+    steps:
+      - name: Resolve deployment plan
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+          DISPATCH_IMAGE: ${{ inputs.image }}
+          DEFAULT_REF: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          mode="${DISPATCH_MODE:-deploy}"
+          ref="$DEFAULT_REF"
+          should_build="true"
+          should_deploy="true"
+          image=""
+
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            mode="deploy"
+            ref="$WORKFLOW_RUN_HEAD_SHA"
+
+            if [ "$WORKFLOW_RUN_CONCLUSION" != "success" ]; then
+              should_build="false"
+              should_deploy="false"
+            fi
+          fi
+
+          image_repo="$(printf '%s/%s' "$REGISTRY" "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
+
+          if [ "$mode" = "rollback" ]; then
+            should_build="false"
+            image="$DISPATCH_IMAGE"
+          else
+            image="${image_repo}:sha-${ref:0:12}"
+          fi
+
+          {
+            echo "mode=$mode"
+            echo "ref=$ref"
+            echo "image=$image"
+            echo "image_repo=$image_repo"
+            echo "should_build=$should_build"
+            echo "should_deploy=$should_deploy"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build & Push to GHCR
+    runs-on: ubuntu-latest
+    needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
+    outputs:
+      image: ${{ needs.resolve.outputs.image }}
+    steps:
+      - name: Checkout deployment source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Set up Docker Buildx
+        run: |
+          set -euo pipefail
+          docker buildx create --use
+          docker buildx inspect --bootstrap
+
+      - name: Build and push image
+        env:
+          IMAGE: ${{ needs.resolve.outputs.image }}
+          IMAGE_REPO: ${{ needs.resolve.outputs.image_repo }}
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --file Dockerfile \
+            --tag "$IMAGE" \
+            --tag "${IMAGE_REPO}:main" \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --push \
+            .
+
+  deploy:
+    name: Deploy to Compute Engine
+    runs-on: ubuntu-latest
+    needs:
+      - resolve
+      - build
+    if: always() && needs.resolve.outputs.should_deploy == 'true' && (needs.resolve.outputs.should_build == 'false' || needs.build.result == 'success')
+    steps:
+      - name: Validate deployment secrets
+        env:
+          GCE_HOST: ${{ secrets.GCE_HOST }}
+          GCE_USERNAME: ${{ secrets.GCE_USERNAME }}
+          GCE_SSH_KEY: ${{ secrets.GCE_SSH_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GCE_HOST"
+          test -n "$GCE_USERNAME"
+          test -n "$GCE_SSH_KEY"
+          test -n "$OPENAI_API_KEY"
+          test -n "$GEMINI_API_KEY"
+          test -n "$LANGFUSE_PUBLIC_KEY"
+          test -n "$LANGFUSE_SECRET_KEY"
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+
+      - name: Prepare SSH
+        env:
+          GCE_HOST: ${{ secrets.GCE_HOST }}
+          GCE_SSH_KEY: ${{ secrets.GCE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$GCE_SSH_KEY" > "$HOME/.ssh/lessonpack-ai"
+          chmod 600 "$HOME/.ssh/lessonpack-ai"
+          ssh-keyscan -H "$GCE_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Deploy image over SSH
+        env:
+          DEPLOY_IMAGE: ${{ needs.resolve.outputs.image }}
+          DEPLOY_MODE: ${{ needs.resolve.outputs.mode }}
+          GCE_HOST: ${{ secrets.GCE_HOST }}
+          GCE_USERNAME: ${{ secrets.GCE_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
+          SERVICE_PORT: ${{ secrets.SERVICE_PORT || '8000' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_OTEL_HOST: ${{ secrets.LANGFUSE_OTEL_HOST }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LESSONPACK_SUPABASE_TABLE: ${{ secrets.LESSONPACK_SUPABASE_TABLE || 'lessonpack_chunks' }}
+          LESSONPACK_SUPABASE_MATCH_FUNCTION: ${{ secrets.LESSONPACK_SUPABASE_MATCH_FUNCTION || 'match_lessonpack_chunks' }}
+          LESSONPACK_SUPABASE_MATCH_THRESHOLD: ${{ secrets.LESSONPACK_SUPABASE_MATCH_THRESHOLD || '0.0' }}
+          LESSONPACK_LITELLM_MODEL: ${{ secrets.LESSONPACK_LITELLM_MODEL || 'gpt-4o-mini' }}
+          LESSONPACK_LITELLM_FALLBACK_MODELS: ${{ secrets.LESSONPACK_LITELLM_FALLBACK_MODELS || 'gemini/gemini-2.0-flash' }}
+          LESSONPACK_LITELLM_CALLBACKS: ${{ secrets.LESSONPACK_LITELLM_CALLBACKS || 'langfuse_otel' }}
+        run: |
+          set -euo pipefail
+
+          b64() { printf '%s' "$1" | base64 -w 0; }
+
+          ghcr_token_b64="$(b64 "$GHCR_TOKEN")"
+          openai_api_key_b64="$(b64 "$OPENAI_API_KEY")"
+          gemini_api_key_b64="$(b64 "$GEMINI_API_KEY")"
+          langfuse_public_key_b64="$(b64 "$LANGFUSE_PUBLIC_KEY")"
+          langfuse_secret_key_b64="$(b64 "$LANGFUSE_SECRET_KEY")"
+          langfuse_otel_host_b64="$(b64 "${LANGFUSE_OTEL_HOST:-}")"
+          supabase_url_b64="$(b64 "$SUPABASE_URL")"
+          supabase_service_role_key_b64="$(b64 "$SUPABASE_SERVICE_ROLE_KEY")"
+          deploy_dir="/home/${GCE_USERNAME}/lessonpack-ai"
+          ssh_target="${GCE_USERNAME}@${GCE_HOST}"
+
+          ssh -i "$HOME/.ssh/lessonpack-ai" "$ssh_target" \
+            "DEPLOY_DIR='$deploy_dir' DEPLOY_IMAGE='$DEPLOY_IMAGE' DEPLOY_MODE='$DEPLOY_MODE' GHCR_TOKEN_B64='$ghcr_token_b64' GHCR_USERNAME='$GHCR_USERNAME' LANGFUSE_OTEL_HOST_B64='$langfuse_otel_host_b64' LANGFUSE_PUBLIC_KEY_B64='$langfuse_public_key_b64' LANGFUSE_SECRET_KEY_B64='$langfuse_secret_key_b64' GEMINI_API_KEY_B64='$gemini_api_key_b64' OPENAI_API_KEY_B64='$openai_api_key_b64' REGISTRY='$REGISTRY' SERVICE_PORT='$SERVICE_PORT' SUPABASE_SERVICE_ROLE_KEY_B64='$supabase_service_role_key_b64' SUPABASE_URL_B64='$supabase_url_b64' LESSONPACK_SUPABASE_TABLE='$LESSONPACK_SUPABASE_TABLE' LESSONPACK_SUPABASE_MATCH_FUNCTION='$LESSONPACK_SUPABASE_MATCH_FUNCTION' LESSONPACK_SUPABASE_MATCH_THRESHOLD='$LESSONPACK_SUPABASE_MATCH_THRESHOLD' LESSONPACK_LITELLM_MODEL='$LESSONPACK_LITELLM_MODEL' LESSONPACK_LITELLM_FALLBACK_MODELS='$LESSONPACK_LITELLM_FALLBACK_MODELS' LESSONPACK_LITELLM_CALLBACKS='$LESSONPACK_LITELLM_CALLBACKS' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          decode() { printf '%s' "$1" | base64 -d; }
+
+          GHCR_TOKEN="$(decode "$GHCR_TOKEN_B64")"
+          OPENAI_API_KEY="$(decode "$OPENAI_API_KEY_B64")"
+          GEMINI_API_KEY="$(decode "$GEMINI_API_KEY_B64")"
+          LANGFUSE_PUBLIC_KEY="$(decode "$LANGFUSE_PUBLIC_KEY_B64")"
+          LANGFUSE_SECRET_KEY="$(decode "$LANGFUSE_SECRET_KEY_B64")"
+          LANGFUSE_OTEL_HOST="$(decode "$LANGFUSE_OTEL_HOST_B64")"
+          SUPABASE_URL="$(decode "$SUPABASE_URL_B64")"
+          SUPABASE_SERVICE_ROLE_KEY="$(decode "$SUPABASE_SERVICE_ROLE_KEY_B64")"
+
+          write_env() {
+            image="$1"
+            {
+              printf 'APP_NAME=lessonpack-ai\n'
+              printf 'APP_ENV=production\n'
+              printf 'DEBUG=false\n'
+              printf 'SERVICE_PORT=%s\n' "$SERVICE_PORT"
+              printf 'APP_IMAGE=%s\n' "$image"
+              printf 'PYTHONPATH=/app/src\n'
+              printf 'LESSONPACK_CONFIG=\n'
+              printf 'LESSONPACK_LLM_PROVIDER=litellm\n'
+              printf 'LESSONPACK_LITELLM_MODEL=%s\n' "$LESSONPACK_LITELLM_MODEL"
+              printf 'LESSONPACK_LITELLM_FALLBACK_MODELS=%s\n' "$LESSONPACK_LITELLM_FALLBACK_MODELS"
+              printf 'LESSONPACK_LITELLM_TIMEOUT_SECONDS=30\n'
+              printf 'LESSONPACK_LITELLM_CALLBACKS=%s\n' "$LESSONPACK_LITELLM_CALLBACKS"
+              printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+              printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
+              printf 'LANGFUSE_PUBLIC_KEY=%s\n' "$LANGFUSE_PUBLIC_KEY"
+              printf 'LANGFUSE_SECRET_KEY=%s\n' "$LANGFUSE_SECRET_KEY"
+              if [ -n "$LANGFUSE_OTEL_HOST" ]; then
+                printf 'LANGFUSE_OTEL_HOST=%s\n' "$LANGFUSE_OTEL_HOST"
+              fi
+              printf 'LITELLM_LOG=INFO\n'
+              printf 'LECTUREOPS_VECTOR_STORE=supabase\n'
+              printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
+              printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
+              printf 'LESSONPACK_SUPABASE_TABLE=%s\n' "$LESSONPACK_SUPABASE_TABLE"
+              printf 'LESSONPACK_SUPABASE_MATCH_FUNCTION=%s\n' "$LESSONPACK_SUPABASE_MATCH_FUNCTION"
+              printf 'LESSONPACK_SUPABASE_MATCH_THRESHOLD=%s\n' "$LESSONPACK_SUPABASE_MATCH_THRESHOLD"
+            } > .env
+            chmod 600 .env
+          }
+
+          write_compose() {
+            cat > docker-compose.yml <<'COMPOSE'
+          name: lessonpack-ai
+
+          services:
+            lessonpack-api:
+              image: ${APP_IMAGE}
+              container_name: lessonpack-api
+              restart: unless-stopped
+              env_file:
+                - .env
+              environment:
+                APP_NAME: ${APP_NAME:-lessonpack-ai}
+                APP_ENV: ${APP_ENV:-production}
+                PYTHONPATH: /app/src
+              ports:
+                - "${SERVICE_PORT:-8000}:8000"
+              healthcheck:
+                test:
+                  [
+                    "CMD",
+                    "python",
+                    "-c",
+                    "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()",
+                  ]
+                interval: 30s
+                timeout: 5s
+                retries: 3
+                start_period: 10s
+          COMPOSE
+          }
+
+          wait_for_health() {
+            for attempt in $(seq 1 30); do
+              if curl -fsS "http://127.0.0.1:${SERVICE_PORT}/health" > health.json; then
+                cat health.json
+                return 0
+              fi
+              sleep 2
+            done
+            return 1
+          }
+
+          mkdir -p "$DEPLOY_DIR"
+          cd "$DEPLOY_DIR"
+
+          old_image="$(cat .current_image 2>/dev/null || true)"
+
+          if [ "$DEPLOY_MODE" = "rollback" ] && [ -z "$DEPLOY_IMAGE" ]; then
+            if [ ! -s .previous_image ]; then
+              echo "Rollback requested but .previous_image does not exist."
+              exit 1
+            fi
+            DEPLOY_IMAGE="$(cat .previous_image)"
+          fi
+
+          if [ -z "$DEPLOY_IMAGE" ]; then
+            echo "DEPLOY_IMAGE is required."
+            exit 1
+          fi
+
+          printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
+
+          write_compose
+          write_env "$DEPLOY_IMAGE"
+
+          docker pull "$DEPLOY_IMAGE"
+          docker compose up -d --force-recreate
+
+          if wait_for_health; then
+            if [ -n "$old_image" ] && [ "$old_image" != "$DEPLOY_IMAGE" ]; then
+              printf '%s\n' "$old_image" > .previous_image
+            fi
+            printf '%s\n' "$DEPLOY_IMAGE" > .current_image
+            docker compose ps
+          else
+            echo "Health check failed for $DEPLOY_IMAGE."
+            docker compose ps || true
+            docker logs lessonpack-api --tail 100 || true
+
+            if [ -n "$old_image" ] && [ "$old_image" != "$DEPLOY_IMAGE" ]; then
+              echo "Rolling back to $old_image."
+              write_env "$old_image"
+              docker pull "$old_image" || true
+              docker compose up -d --force-recreate
+              printf '%s\n' "$old_image" > .current_image
+            fi
+
+            exit 1
+          fi
+          REMOTE
+
+  summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs:
+      - resolve
+      - build
+      - deploy
+    if: always()
+    steps:
+      - name: Write deployment summary
+        run: |
+          {
+            echo "### LessonPack AI CD"
+            echo ""
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Mode | ${{ needs.resolve.outputs.mode }} |"
+            echo "| Image | ${{ needs.resolve.outputs.image }} |"
+            echo "| Build | ${{ needs.build.result }} |"
+            echo "| Deploy | ${{ needs.deploy.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

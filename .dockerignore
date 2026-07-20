@@ -1,0 +1,55 @@
+﻿# Git and local tooling
+.git/
+.github/
+.claude/
+.codex/
+.agents/
+.vscode/
+.idea/
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+ENV/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local data and generated artifacts
+data/raw/
+data/interim/
+data/processed/
+data/vector_store/
+outputs/
+exports/
+models/
+*.db
+*.sqlite
+*.sqlite3
+*.pdf
+*.docx
+*.pptx
+
+# Build outputs and logs
+build/
+dist/
+*.egg-info/
+*.log
+*.tmp
+tmp/
+temp/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
