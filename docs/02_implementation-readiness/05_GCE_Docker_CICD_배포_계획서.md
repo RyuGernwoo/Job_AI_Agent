@@ -6,6 +6,12 @@
 배포 대상: Google Compute Engine VM + Docker Compose
 CI/CD 도구: GitHub Actions + GHCR + SSH 배포
 
+## 0. 현재 구축 상태
+
+2026-07-20 기준 Docker image build, GitHub Actions CI/CD, GCE Docker 실배포, `/health` 배포 검증이 완료되었다. 이 문서는 구축 전 계획서의 역할도 유지하지만, 현재는 운영 재현과 점검 기준 문서로 사용한다.
+
+현재 운영 의존성은 Supabase, OpenAI, Gemini, Langfuse이며, GCE 컨테이너는 외부 API로 outbound HTTPS 호출을 수행한다.
+
 ## 1. 문서 목적
 
 이 문서는 LessonPack AI MVP를 GCE 기반 Docker 서비스로 배포하고, GitHub Actions 기반 CI/CD를 적용하기 위한 구현 전 계획서이다. CI/CD 구조는 `CI-CD-Guide`의 FastAPI 예시 서비스인 `release-notes-api` 흐름을 기준으로 하되, LessonPack AI의 실제 구조에 맞게 endpoint, 실행 명령, 테스트 명령, 환경변수, 외부 의존성을 조정한다.

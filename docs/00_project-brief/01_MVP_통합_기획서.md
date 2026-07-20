@@ -2,7 +2,15 @@
 
 작성일: 2026-06-29
 작성 페르소나: 대학교 AI 관련 학과를 막 졸업한 학생, 개인 프로젝트로 AI 서비스 기획 문서를 작성 중인 학습자
-원문 주제: [`프로젝트주제.md`](./프로젝트주제.md)
+원문 주제: [`00_프로젝트_주제.md`](./00_프로젝트_주제.md)
+
+---
+
+## 0. 현재 구현 반영 요약
+
+2026-07-20 기준 MVP는 기획 단계를 넘어 FastAPI API, Streamlit 데모 UI, Supabase vector store, LiteLLM 기반 OpenAI primary/Gemini fallback, Langfuse tracing, Docker/GCE CI/CD까지 구현·검증된 상태다. 따라서 이 문서는 초기 기획 의도를 설명하되, 실제 구현 기준은 `docs/README.md`, `README.md`, `02_implementation-readiness/01_구현명세서.md`를 우선 참조한다.
+
+현재 MVP 실증 범위는 “1개 차시 강의 패키지 생성 → 강사 검수 → DOCX/PPTX export”이며, 전체 LMS·자동 채점·기관 계정 관리는 계속 제외 범위로 둔다.
 
 ---
 
@@ -924,4 +932,4 @@ KOSENA 기준 제출물로 재정리하면 다음과 같다.
 - Moodle Questions: <https://docs.moodle.org/405/en/Questions>
 - H5P Content Types: <https://h5p.org/content-types-and-applications>
 - FastAPI: <https://fastapi.tiangolo.com/>
-- KOSENA 서비스 기획 수업 자료: [`KOSENA_AI_서비스기획.md`](./KOSENA_AI_서비스기획.md)
+- KOSENA 서비스 기획 수업 자료: [`KOSENA_AI_서비스기획.md`](../90_reference/KOSENA_AI_서비스기획.md)

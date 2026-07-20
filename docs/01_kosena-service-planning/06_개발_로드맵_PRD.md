@@ -5,6 +5,12 @@
 
 ---
 
+## 0. 현재 구현 상태
+
+2026-07-20 기준 이 로드맵의 핵심 Must Have 범위는 구현 완료 상태다. FastAPI API, Streamlit 데모 UI, Supabase 기반 vector store, LiteLLM 기반 LLM provider, Langfuse tracing, DOCX/PPTX export, Docker/GCE CI/CD가 적용되어 있다. 이후 로드맵은 품질 실증, 사용자 검증, UI 개선, semantic embedding 고도화를 중심으로 재해석한다.
+
+---
+
 ## 1. PRD 요약
 
 | 항목 | 내용 |
@@ -12,7 +18,7 @@
 | Product | LessonPack AI MVP |
 | Target User | 직업훈련 강사, 교육 운영 담당자 |
 | Problem | 교안·실습·평가 산출물을 반복 작성하고, NCS·교재 근거를 수작업으로 맞춰야 함 |
-| Goal | 1개 차시 강의 패키지를 근거 기반으로 생성하고, 강사가 검수 후 DOCX로 저장 |
+| Goal | 1개 차시 강의 패키지를 근거 기반으로 생성하고, 강사가 검수 후 DOCX/PPTX로 저장 |
 | Non-goal | LMS 운영, 자동 채점, 기관 계정 관리, 전체 과정 자동 생성 |
 | Primary Flow | 입력 → 교재 업로드 → RAG 검색 → 생성 → 검수 → 다운로드 |
 | Success Metric | end-to-end 시연 성공, citation 연결률, DOCX 생성 성공률, 강사 수정 가능성 |
