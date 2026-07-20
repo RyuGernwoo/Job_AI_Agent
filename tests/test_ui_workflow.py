@@ -37,7 +37,7 @@ class UiWorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(len(result.chunks), 1)
         self.assertGreaterEqual(len(result.retrieved_chunks), 1)
         self.assertEqual(result.package.project_id, result.project.project_id)
-        self.assertEqual(result.package.practice.citation_ids, [result.retrieved_chunks[0].chunk_id])
+        self.assertIn(result.retrieved_chunks[0].chunk_id, result.package.practice.citation_ids)
 
     def test_approve_package_sets_approved_status(self):
         project = ProjectCreate(

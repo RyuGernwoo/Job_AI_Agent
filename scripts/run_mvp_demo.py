@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from lectureops_agent.services.llm_provider import create_llm_provider_from_env
+from lectureops_agent.services.llm_provider import MockLLMProvider, create_llm_provider_from_env
 from lectureops_agent.services.llm_provider_readiness import check_llm_provider_readiness
 from lectureops_agent.services.mvp_demo_runner import run_mvp_demo
 from scripts.validate_mvp_dataset import validate_dataset
@@ -24,6 +24,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", type=Path, default=ROOT / "outputs" / "demo", help="Demo artifact output path.")
     parser.add_argument("--case-id", default="g003", help="generation_gold.yaml case id to demo.")
     parser.add_argument("--chunks-per-source", type=int, default=2, help="Number of chunks selected per source id.")
+    parser.add_argument(
+        "--provider",
+        choices=["env", "mock"],
+        default="env",
+        help="LLM provider source. Use mock for offline export quality checks.",
+    )
     parser.add_argument("--require-real-llm", action="store_true", help="Fail unless a non-mock LLM provider is ready.")
     args = parser.parse_args(argv)
 
@@ -32,7 +38,9 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"validation": validation}, ensure_ascii=False, indent=2))
         return 1
 
-    provider_readiness = check_llm_provider_readiness()
+    provider_readiness = {"ready": True, "real_provider_ready": False, "provider": "mock"}
+    if args.provider == "env":
+        provider_readiness = check_llm_provider_readiness()
     if not provider_readiness["ready"] or (args.require_real_llm and not provider_readiness["real_provider_ready"]):
         print(
             json.dumps(
@@ -46,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    provider = create_llm_provider_from_env()
+    provider = MockLLMProvider() if args.provider == "mock" else create_llm_provider_from_env()
     report = run_mvp_demo(
         data_dir=args.data_dir,
         output_dir=args.output_dir,

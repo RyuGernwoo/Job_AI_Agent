@@ -6,16 +6,19 @@ from uuid import uuid4
 
 from lectureops_agent.models.schemas import (
     Assessment,
+    CitationDetail,
     GenerationLog,
     LessonPackage,
     LessonPlan,
     LectureFlowItem,
     MaterialChunk,
     MultipleChoiceQuestion,
+    NCSAlignment,
     PackageStatus,
     PerformanceTask,
     Practice,
     Project,
+    StandardTemplateMetadata,
 )
 from lectureops_agent.services.llm_provider import LLMProvider, MockLLMProvider
 
@@ -85,7 +88,10 @@ def build_generation_prompt(*, project: Project, retrieved_chunks: list[Material
         f"- {unit.unit_code} {unit.unit_name}: {', '.join(unit.elements) if unit.elements else '세부 요소 미기재'}"
         for unit in project.ncs_units
     )
-    evidence_text = "\n".join(f"[{chunk.chunk_id}] {chunk.text}" for chunk in retrieved_chunks)
+    evidence_text = "\n".join(
+        f"[{chunk.chunk_id}] {chunk.source_name} / {chunk.metadata.get('section', 'section unknown')}: {chunk.text}"
+        for chunk in retrieved_chunks
+    )
     return (
         "LessonPack AI generation request\n"
         f"Course: {project.course_title}\n"
@@ -97,8 +103,10 @@ def build_generation_prompt(*, project: Project, retrieved_chunks: list[Material
         f"{ncs_text or '- NCS unit not provided'}\n"
         "Retrieved evidence chunks:\n"
         f"{evidence_text}\n"
-        "Create a grounded lesson plan, practice scenario, and assessment draft. "
-        "Every core item must stay traceable to citation IDs and require instructor review."
+        "Return a JSON object only when possible. The object should contain lesson_plan, practice, "
+        "assessment, citation_ids, and ncs_alignment. Do not introduce proper nouns, numbers, laws, "
+        "or certifications that are not present in the evidence chunks. Every core item must stay "
+        "traceable to citation IDs and require instructor review."
     )
 
 
@@ -109,11 +117,16 @@ def _build_package(
     package_id: str,
     provider_response: str,
 ) -> LessonPackage:
-    primary_chunk = retrieved_chunks[0]
     citation_ids = _citation_ids(retrieved_chunks)
+    intro_citations = _citation_ids_for(retrieved_chunks, preferred_index=0, limit=1)
+    development_citations = _citation_ids_for(retrieved_chunks, preferred_index=1, limit=2)
+    closing_citations = _citation_ids_for(retrieved_chunks, preferred_index=2, limit=1)
+    practice_citations = _citation_ids_for(retrieved_chunks, preferred_index=0, limit=3)
+    alignments = _ncs_alignments(project)
+    primary_alignment = alignments[:1]
+    alignment_text = _alignment_summary(primary_alignment)
     objective_text = " / ".join(project.learning_objectives)
-    evidence_summary = primary_chunk.text[:120]
-    provider_summary = provider_response[:180]
+    evidence_summary = _evidence_summary(retrieved_chunks)
     practice_keywords = _practice_keywords(project=project, retrieved_chunks=retrieved_chunks)
     practice_keyword_text = ", ".join(practice_keywords)
 
@@ -123,24 +136,30 @@ def _build_package(
         lecture_flow=[
             LectureFlowItem(
                 section="도입",
-                duration_min=None,
-                content=f"{project.course_title} 과정 맥락에서 오늘 차시 목표를 안내한다: {objective_text}",
-                citation_ids=citation_ids,
+                duration_min=15,
+                content=(
+                    f"{project.course_title} 과정 맥락에서 오늘 차시 목표를 안내한다. "
+                    f"학습자는 {objective_text}를 수행해야 하며, NCS 연계는 {alignment_text}이다."
+                ),
+                citation_ids=intro_citations,
+                ncs_alignment=primary_alignment,
             ),
             LectureFlowItem(
                 section="전개",
-                duration_min=None,
+                duration_min=75,
                 content=(
-                    "핵심 개념을 근거 자료와 provider 생성 요약에 맞춰 설명한다. "
-                    f"근거 요약: {evidence_summary} / 생성 요약: {provider_summary}"
+                    f"검색 근거에서 확인된 핵심 개념을 예제와 함께 설명한다. 핵심 근거: {evidence_summary}. "
+                    f"강사는 설명 중 {practice_keyword_text}를 차례로 연결한다."
                 ),
-                citation_ids=citation_ids,
+                citation_ids=development_citations,
+                ncs_alignment=alignments,
             ),
             LectureFlowItem(
                 section="정리",
-                duration_min=None,
-                content="학습자가 직접 작성한 결과물을 기준으로 개념 이해와 적용 여부를 점검한다.",
-                citation_ids=citation_ids,
+                duration_min=30,
+                content="학습자가 작성한 코드, 실행 결과, 개념 설명을 기준으로 학습목표와 NCS 수행 기준 충족 여부를 점검한다.",
+                citation_ids=closing_citations,
+                ncs_alignment=primary_alignment,
             ),
         ],
     )
@@ -151,91 +170,102 @@ def _build_package(
             f"핵심 실습 요소는 {practice_keyword_text}이다."
         ),
         steps=[
-            f"수행 절차: 제공된 근거 자료에서 핵심 개념을 3개 추출한다. 포함할 요소: {practice_keyword_text}.",
-            "수행 절차: 추출한 개념을 활용해 간단한 실습 코드를 작성한다.",
-            "수행 절차: 작성한 결과를 학습 목표와 연결해 설명한다.",
+            f"수행 절차: 근거 자료에서 {practice_keyword_text}와 관련된 개념을 3개 추출한다.",
+            "수행 절차: 추출한 개념을 함수, 입력값, 반환값 또는 자료구조 처리 코드로 구현한다.",
+            "수행 절차: 실행 결과를 캡처하고 학습목표 및 NCS 수행 기준과 연결해 설명한다.",
         ],
         submission=f"제출물: 실습 코드와 실행 결과, 핵심 개념 설명 3문장. 반영 요소: {practice_keyword_text}.",
         rubric=[
-            f"평가 기준: 근거 자료의 개념을 정확히 반영했다. 확인 요소: {practice_keyword_text}.",
+            f"평가 기준: 근거 자료와 NCS 수행 기준을 정확히 반영했다. 확인 요소: {practice_keyword_text}.",
             "평가 기준: 실습 절차가 재현 가능하다.",
             "평가 기준: 학습 목표와 제출물이 연결된다.",
         ],
-        citation_ids=citation_ids,
+        citation_ids=practice_citations,
+        ncs_alignment=alignments,
     )
 
+    rotated_citations = [
+        _citation_ids_for(retrieved_chunks, preferred_index=index, limit=1)
+        for index in range(5)
+    ]
     assessment = Assessment(
         multiple_choice=[
             MultipleChoiceQuestion(
-                question=f"{project.lesson_title} 수업에서 가장 먼저 확인해야 할 항목은 무엇인가?",
+                question=f"{project.lesson_title} 실습에서 학습목표 달성 여부를 가장 잘 보여주는 증거는 무엇인가?",
                 options=[
-                    "학습 목표와 수강생 수준",
-                    "무관한 고급 알고리즘",
-                    "수업과 관계없는 도구 목록",
-                    "평가 없이 진행하는 실습",
+                    "실습 코드, 실행 결과, 개념 설명이 함께 제출된 결과",
+                    "근거 없이 복사한 긴 설명문",
+                    "수업 목표와 무관한 도구 목록",
+                    "정답 없이 제출한 빈 파일",
                 ],
                 answer_index=0,
-                explanation="강의 패키지는 학습 목표와 수강생 수준을 기준으로 구성해야 한다.",
-                citation_ids=citation_ids,
+                explanation="실습형 수업은 코드 결과와 설명이 학습목표를 함께 입증해야 한다.",
+                citation_ids=rotated_citations[0],
+                ncs_alignment=primary_alignment,
             ),
             MultipleChoiceQuestion(
-                question="생성 결과에 citation ID를 붙이는 주된 이유는 무엇인가?",
+                question=f"NCS {primary_alignment[0].unit_name if primary_alignment else '능력단위'}와 가장 직접적으로 연결되는 활동은 무엇인가?",
                 options=[
-                    "근거 추적과 사람 검토를 가능하게 하기 위해",
-                    "문서 길이를 임의로 늘리기 위해",
-                    "파일명을 숨기기 위해",
-                    "평가 문항을 제거하기 위해",
+                    "근거 자료의 개념을 활용해 재현 가능한 실습 절차를 작성한다.",
+                    "수업과 무관한 고급 이론만 암기한다.",
+                    "평가 기준 없이 결과만 제출한다.",
+                    "출처를 제거하고 문장을 다시 작성한다.",
                 ],
                 answer_index=0,
-                explanation="citation ID는 생성 내용이 어떤 근거 chunk에서 나왔는지 확인하는 장치다.",
-                citation_ids=citation_ids,
+                explanation="NCS 기반 산출물은 수행 가능한 활동과 평가 기준으로 연결되어야 한다.",
+                citation_ids=rotated_citations[1],
+                ncs_alignment=primary_alignment,
             ),
             MultipleChoiceQuestion(
-                question="MVP 단계에서 적합한 검토 흐름은 무엇인가?",
+                question="list 또는 dictionary를 활용한 자동화 실습에서 가장 적절한 평가 기준은 무엇인가?",
                 options=[
-                    "draft 생성 후 사람이 검토하고 승인한다.",
-                    "검토 없이 자동 배포한다.",
-                    "학습자 계정 관리를 먼저 구현한다.",
-                    "LMS 연동을 필수로 만든다.",
+                    "입력 데이터를 자료구조로 저장하고 필요한 값을 정확히 처리한다.",
+                    "자료구조를 쓰지 않고 결과를 임의로 적는다.",
+                    "실행하지 않은 코드를 제출한다.",
+                    "학습목표와 무관한 화면 꾸미기만 수행한다.",
                 ],
                 answer_index=0,
-                explanation="문서 기준 MVP는 HITL 검토와 승인 흐름을 우선한다.",
-                citation_ids=citation_ids,
+                explanation="자료구조 활용 수업에서는 데이터 저장, 접근, 처리의 정확성이 핵심 평가 기준이다.",
+                citation_ids=rotated_citations[2],
+                ncs_alignment=alignments,
             ),
             MultipleChoiceQuestion(
-                question="검색된 chunk가 생성 프롬프트에 들어가는 이유는 무엇인가?",
+                question="근거 자료 기반 수업 초안을 검수할 때 가장 먼저 확인해야 할 사항은 무엇인가?",
                 options=[
-                    "생성 결과를 근거 자료 범위 안에 묶기 위해",
-                    "외부 사실을 임의로 만들기 위해",
-                    "모든 PDF 페이지를 그대로 복사하기 위해",
-                    "검증을 생략하기 위해",
+                    "핵심 설명과 평가 문항이 citation으로 추적되는지 확인한다.",
+                    "citation을 모두 삭제해 문서를 짧게 만든다.",
+                    "근거와 다른 수치를 임의로 추가한다.",
+                    "검수 없이 바로 배포한다.",
                 ],
                 answer_index=0,
-                explanation="RAG 흐름은 검색 근거를 바탕으로 생성 범위를 제한한다.",
-                citation_ids=citation_ids,
+                explanation="근거 추적은 RAG 기반 생성물의 할루시네이션을 줄이고 강사 검수를 돕는다.",
+                citation_ids=rotated_citations[3],
+                ncs_alignment=primary_alignment,
             ),
             MultipleChoiceQuestion(
-                question="1개월 MVP에서 제외하는 것이 적절한 기능은 무엇인가?",
+                question="수행평가 루브릭에 반드시 포함해야 할 요소로 가장 적절한 것은 무엇인가?",
                 options=[
-                    "대규모 LMS 계정 관리",
-                    "교안 초안 생성",
-                    "실습 과제 초안 생성",
-                    "평가 문항 초안 생성",
+                    "학습목표, 근거 자료, 제출물 품질을 함께 판단하는 기준",
+                    "강사 이름만 확인하는 기준",
+                    "문서 분량만 평가하는 기준",
+                    "수강생의 배경지식과 무관한 기준",
                 ],
                 answer_index=0,
-                explanation="MVP는 1개 차시 패키지 생성에 집중하고 LMS 운영 기능은 제외한다.",
-                citation_ids=citation_ids,
+                explanation="루브릭은 수행 결과가 목표와 근거에 맞는지 확인할 수 있어야 한다.",
+                citation_ids=rotated_citations[4],
+                ncs_alignment=primary_alignment,
             ),
         ],
         performance_task=PerformanceTask(
-            title="강의 패키지 검토 과제",
-            description="생성된 교안, 실습, 평가 문항이 학습 목표와 근거 자료에 맞는지 검토한다.",
+            title=f"{project.lesson_title} 수행평가",
+            description="함수 또는 자료구조를 활용해 간단한 자동화 코드를 작성하고, 실행 결과와 근거 개념 설명을 함께 제출한다.",
             rubric=[
-                "citation ID가 모든 핵심 항목에 연결되어 있다.",
-                "실습 제출물이 학습 목표를 검증할 수 있다.",
-                "평가 문항의 정답과 해설이 일관된다.",
+                "근거 자료의 핵심 개념을 코드와 설명에 정확히 반영했다.",
+                "실습 절차와 실행 결과가 재현 가능하다.",
+                "제출물이 학습목표와 NCS 수행 기준을 검증할 수 있다.",
             ],
-            citation_ids=citation_ids,
+            citation_ids=practice_citations,
+            ncs_alignment=alignments,
         ),
     )
 
@@ -246,16 +276,84 @@ def _build_package(
         lesson_plan=lesson_plan,
         practice=practice,
         assessment=assessment,
+        evidence_sources=_citation_details(retrieved_chunks),
+        template_metadata=StandardTemplateMetadata(lesson_duration_min=120),
     )
 
 
-def _citation_ids(chunks: list[MaterialChunk]) -> list[str]:
-    return [chunks[0].chunk_id]
+def _citation_ids(chunks: list[MaterialChunk], *, limit: int = 3) -> list[str]:
+    return [chunk.chunk_id for chunk in chunks[: max(1, limit)]]
+
+
+def _citation_ids_for(chunks: list[MaterialChunk], *, preferred_index: int, limit: int) -> list[str]:
+    if not chunks:
+        return []
+    ordered: list[MaterialChunk] = []
+    preferred = chunks[preferred_index % len(chunks)]
+    ordered.append(preferred)
+    for chunk in chunks:
+        if chunk.chunk_id != preferred.chunk_id:
+            ordered.append(chunk)
+        if len(ordered) >= limit:
+            break
+    return [chunk.chunk_id for chunk in ordered[:limit]]
+
+
+def _citation_details(chunks: list[MaterialChunk]) -> list[CitationDetail]:
+    details: list[CitationDetail] = []
+    for chunk in chunks:
+        details.append(
+            CitationDetail(
+                chunk_id=chunk.chunk_id,
+                source_name=chunk.source_name,
+                source_url=_optional_metadata(chunk, "source_url"),
+                license=_optional_metadata(chunk, "license"),
+                source_file=_optional_metadata(chunk, "source_file"),
+                page=chunk.page,
+                excerpt=_truncate_words(chunk.text, max_chars=240),
+            )
+        )
+    return details
+
+
+def _optional_metadata(chunk: MaterialChunk, key: str) -> str | None:
+    value = chunk.metadata.get(key)
+    if value is None or value == "":
+        return None
+    return str(value)
+
+
+def _ncs_alignments(project: Project) -> list[NCSAlignment]:
+    alignments: list[NCSAlignment] = []
+    for unit in project.ncs_units:
+        criteria = unit.elements or [f"{unit.unit_name} 능력단위와 차시 학습목표를 연결한다."]
+        alignments.append(
+            NCSAlignment(
+                unit_code=unit.unit_code,
+                unit_name=unit.unit_name,
+                performance_criteria=criteria,
+            )
+        )
+    return alignments
+
+
+def _alignment_summary(alignments: list[NCSAlignment]) -> str:
+    if not alignments:
+        return "강사 검수 단계에서 NCS 능력단위 추가 확인 필요"
+    return "; ".join(f"{item.unit_code} {item.unit_name}" for item in alignments)
+
+
+def _evidence_summary(chunks: list[MaterialChunk]) -> str:
+    summaries: list[str] = []
+    for chunk in chunks[:3]:
+        section = chunk.metadata.get("section") or chunk.source_name
+        summaries.append(f"{chunk.chunk_id} {section}: {_truncate_words(chunk.text, max_chars=90)}")
+    return " / ".join(summaries)
 
 
 def _practice_keywords(*, project: Project, retrieved_chunks: list[MaterialChunk]) -> list[str]:
     text = _practice_source_text(project=project, retrieved_chunks=retrieved_chunks)
-    keywords = ["실습 시나리오", "수행 절차", "제출물", "평가 기준", "실행 결과"]
+    keywords = ["실행 결과 검증"]
     candidates = [
         ("라이브러리 활용", ["라이브러리", "library", "pandas", "dataframe", "series"]),
         ("함수화", ["함수", "function", "def"]),
@@ -266,6 +364,13 @@ def _practice_keywords(*, project: Project, retrieved_chunks: list[MaterialChunk
         if any(trigger in text for trigger in triggers):
             keywords.append(keyword)
     return keywords
+
+
+def _truncate_words(value: str, *, max_chars: int) -> str:
+    normalized = " ".join(value.split())
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[: max_chars - 3].rstrip() + "..."
 
 
 def _practice_source_text(*, project: Project, retrieved_chunks: list[MaterialChunk]) -> str:

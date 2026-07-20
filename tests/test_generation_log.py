@@ -58,7 +58,7 @@ def sample_chunk(project_id: str) -> MaterialChunk:
 
 
 class GenerationLogTests(unittest.TestCase):
-    def test_generation_uses_provider_response_and_records_log(self):
+    def test_generation_records_provider_response_without_leaking_free_text_into_package(self):
         project = sample_project_create().to_project(project_id="project-001")
         provider = StaticLLMProvider()
         chunk = sample_chunk(project.project_id)
@@ -71,9 +71,10 @@ class GenerationLogTests(unittest.TestCase):
         )
 
         self.assertEqual(result.package.package_id, "package-001")
-        self.assertIn("Provider outline", result.package.lesson_plan.lecture_flow[1].content)
+        self.assertNotIn("Provider outline", result.package.lesson_plan.lecture_flow[1].content)
         self.assertEqual(result.log.package_id, "package-001")
         self.assertEqual(result.log.provider_name, "static-test")
+        self.assertIn("Provider outline", result.log.response_text)
         self.assertEqual(result.log.citation_ids, [chunk.chunk_id])
         self.assertEqual(result.log.retrieved_chunk_ids, [chunk.chunk_id])
         self.assertIn(project.lesson_title, result.log.prompt)

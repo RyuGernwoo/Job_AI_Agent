@@ -14,9 +14,11 @@ from lectureops_agent.models.schemas import (
     LessonPackage,
     MaterialChunk,
     MaterialIngestResult,
+    PackageEditPatch,
     Project,
     ProjectCreate,
     RetrieveRequest,
+    ReviewEvent,
     ReviewPatch,
 )
 from lectureops_agent.services.chunk_service import chunk_text
@@ -24,7 +26,7 @@ from lectureops_agent.services.export_service import export_lesson_package_docx,
 from lectureops_agent.services.generation_service import generate_lesson_package_with_log
 from lectureops_agent.services.llm_provider import LLMProvider, create_llm_provider_from_config, create_llm_provider_from_env
 from lectureops_agent.services.parser_service import decode_text_material
-from lectureops_agent.services.review_service import apply_review_patch
+from lectureops_agent.services.review_service import apply_package_edit, apply_review_patch
 from lectureops_agent.services.vector_store import VectorStore, create_vector_store_from_config, create_vector_store_from_env
 
 CHUNK_SIZE_CHARS = 800
@@ -147,6 +149,18 @@ def create_app(
             raise HTTPException(status_code=404, detail="generation log not found")
         return log
 
+    @app.patch("/api/packages/{package_id}", response_model=LessonPackage)
+    def edit_package(package_id: str, payload: PackageEditPatch) -> LessonPackage:
+        package = packages.get(package_id)
+        if package is None:
+            raise HTTPException(status_code=404, detail="package not found")
+        try:
+            updated = apply_package_edit(package, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        packages[package_id] = updated
+        return updated
+
     @app.patch("/api/packages/{package_id}/review", response_model=LessonPackage)
     def review_package(package_id: str, payload: ReviewPatch) -> LessonPackage:
         package = packages.get(package_id)
@@ -158,6 +172,13 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         packages[package_id] = updated
         return updated
+
+    @app.get("/api/packages/{package_id}/review-history", response_model=list[ReviewEvent])
+    def get_review_history(package_id: str) -> list[ReviewEvent]:
+        package = packages.get(package_id)
+        if package is None:
+            raise HTTPException(status_code=404, detail="package not found")
+        return package.review_history
 
     @app.get("/api/packages/{package_id}/export.docx")
     def export_docx(package_id: str) -> FileResponse:
@@ -220,6 +241,8 @@ def _env_flag(name: str, *, default: bool) -> bool:
     if value is None or not value.strip():
         return default
     return value.strip().casefold() in {"1", "true", "yes", "on"}
+
+
 def _load_config_from_env() -> LessonPackConfig | None:
     config_path = os.getenv("LESSONPACK_CONFIG")
     if not config_path:

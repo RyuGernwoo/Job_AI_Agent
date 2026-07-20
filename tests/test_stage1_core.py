@@ -229,7 +229,7 @@ class Stage1CoreTests(unittest.TestCase):
             source_type="md",
             page=None,
             text="A function can receive input and return output.",
-            metadata={"license": "PSF License"},
+            metadata={"license": "PSF License", "source_url": "https://docs.python.org/3/tutorial/controlflow.html"},
         )
         generated = client.post(
             f"/api/projects/{project_id}/generate",
@@ -239,10 +239,12 @@ class Stage1CoreTests(unittest.TestCase):
 
         reviewed = client.patch(
             f"/api/packages/{package_id}/review",
-            json={"status": "reviewed", "reviewer_notes": "Evidence is aligned."},
+            json={"status": "reviewed", "reviewer_notes": "Evidence is aligned.", "reviewer_name": "Instructor A"},
         )
         self.assertEqual(reviewed.status_code, 200)
         self.assertEqual(reviewed.json()["status"], "reviewed")
+        self.assertEqual(reviewed.json()["reviewer_notes"], "Evidence is aligned.")
+        self.assertEqual(len(reviewed.json()["review_history"]), 1)
 
         approved = client.patch(
             f"/api/packages/{package_id}/review",
@@ -250,6 +252,50 @@ class Stage1CoreTests(unittest.TestCase):
         )
         self.assertEqual(approved.status_code, 200)
         self.assertEqual(approved.json()["status"], "approved")
+        self.assertEqual(len(approved.json()["review_history"]), 2)
+
+        history = client.get(f"/api/packages/{package_id}/review-history")
+        self.assertEqual(history.status_code, 200)
+        self.assertEqual(len(history.json()), 2)
+
+    def test_fastapi_package_edit_persists_teacher_changes(self):
+        client = create_isolated_test_client()
+        created = client.post("/api/projects", json=sample_project_create().model_dump())
+        project_id = created.json()["project_id"]
+        chunk = MaterialChunk(
+            chunk_id="doc001-p000-c001",
+            project_id=project_id,
+            document_id="doc001",
+            source_name="python_tutorial_sample.md",
+            source_type="md",
+            page=None,
+            text="A function can receive input and return output.",
+            metadata={"license": "PSF License"},
+        )
+        generated = client.post(
+            f"/api/projects/{project_id}/generate",
+            json={"retrieved_chunks": [chunk.model_dump()]},
+        )
+        package = generated.json()
+        package_id = package["package_id"]
+        lesson_plan = package["lesson_plan"]
+        lesson_plan["lecture_flow"][0]["content"] = "강사가 검수 후 도입 문장을 수정했다."
+
+        edited = client.patch(
+            f"/api/packages/{package_id}",
+            json={
+                "lesson_plan": lesson_plan,
+                "edit_reason": "도입 문장 명확화",
+                "reviewer_name": "Instructor A",
+            },
+        )
+
+        self.assertEqual(edited.status_code, 200)
+        body = edited.json()
+        self.assertEqual(body["status"], "draft")
+        self.assertEqual(body["lesson_plan"]["lecture_flow"][0]["content"], "강사가 검수 후 도입 문장을 수정했다.")
+        self.assertEqual(body["reviewer_notes"], "도입 문장 명확화")
+        self.assertEqual(body["review_history"][0]["changed_fields"], ["lesson_plan"])
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@
 2. [데이터셋 운영 문서](../data/README_DATASET.md)
 3. [검증 프로토콜](02_implementation-readiness/03_검증_프로토콜.md)
 4. [GCE Docker CI/CD 배포 계획서](02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
+5. [체크포인트 보완 기획서](02_implementation-readiness/06_체크포인트_보완_기획서.md)
 
 ## 문서 구조
 
@@ -43,6 +44,7 @@ docs/
     03_검증_프로토콜.md
     04_데이터셋_활용_전처리_계획서.md
     05_GCE_Docker_CICD_배포_계획서.md
+    06_체크포인트_보완_기획서.md
   03_ui-lovable/
     01_Lovable_UI_생성_프롬프트.md
   90_reference/
@@ -63,6 +65,7 @@ docs/
 | Export | DOCX/PPTX export 구현 |
 | 배포 | Docker, GCE, GitHub Actions CI/CD 적용 및 실배포 확인 |
 | 검증 | unittest, retrieval/generation 평가, MVP verification script 구성 |
+| 품질 보완 | 실제 DOCX/PPTX 테스트 산출물 분석 기반 보완 계획 추가 |
 
 ## 문서별 역할
 

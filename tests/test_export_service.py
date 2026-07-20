@@ -30,7 +30,11 @@ def make_package(status: PackageStatus = PackageStatus.APPROVED):
         source_type="pdf",
         page=None,
         text="A function can receive input and return output.",
-        metadata={"license": "PSF License"},
+        metadata={
+            "license": "PSF License",
+            "source_url": "https://docs.python.org/3/tutorial/controlflow.html",
+            "source_file": "data/raw/materials/tutorial_functions.md",
+        },
     )
     package = generate_lesson_package(project=project, retrieved_chunks=[chunk])
     return package.model_copy(update={"status": status})
@@ -49,8 +53,10 @@ class ExportServiceTests(unittest.TestCase):
             doc = Document(str(output_path))
             text = "\n".join(paragraph.text for paragraph in doc.paragraphs)
             self.assertIn("Python functions and prompt automation practice", text)
-            self.assertIn("Practice", text)
-            self.assertIn("Evidence Sources", text)
+            self.assertIn("실습 과제", text)
+            self.assertIn("근거 출처", text)
+            self.assertIn("PSF License", text)
+            self.assertIn("NCS 연계", text)
 
     def test_export_lesson_package_docx_rejects_unapproved_package(self):
         package = make_package(PackageStatus.DRAFT)
@@ -77,8 +83,9 @@ class ExportServiceTests(unittest.TestCase):
                 if hasattr(shape, "text")
             )
             self.assertIn("Python functions and prompt automation practice", slide_text)
-            self.assertIn("Practice", slide_text)
-            self.assertIn("Evidence Sources", slide_text)
+            self.assertIn("실습 과제", slide_text)
+            self.assertIn("근거 출처", slide_text)
+            self.assertIn("PSF License", slide_text)
 
     def test_export_lesson_package_pptx_rejects_unapproved_package(self):
         package = make_package(PackageStatus.DRAFT)

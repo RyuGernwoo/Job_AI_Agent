@@ -23,6 +23,29 @@ class NCSUnit(BaseModel):
     elements: list[str] = Field(default_factory=list)
 
 
+class NCSAlignment(BaseModel):
+    unit_code: str = Field(min_length=1)
+    unit_name: str = Field(min_length=1)
+    performance_criteria: list[str] = Field(default_factory=list)
+    source_md: str | None = None
+
+
+class CitationDetail(BaseModel):
+    chunk_id: str = Field(min_length=1)
+    source_name: str = Field(min_length=1)
+    source_url: str | None = None
+    license: str | None = None
+    source_file: str | None = None
+    page: int | None = Field(default=None, ge=1)
+    excerpt: str = Field(min_length=1)
+
+
+class StandardTemplateMetadata(BaseModel):
+    template_version: str = "lessonpack-mvp-v0.2"
+    lesson_duration_min: int | None = Field(default=None, ge=1)
+    generation_scope: str = "single_lesson_mvp"
+
+
 class ProjectCreate(BaseModel):
     course_title: str = Field(min_length=1)
     lesson_title: str = Field(min_length=1)
@@ -79,6 +102,7 @@ class LectureFlowItem(BaseModel):
     duration_min: int | None = Field(default=None, ge=1)
     content: str = Field(min_length=1)
     citation_ids: list[str] = Field(min_length=1)
+    ncs_alignment: list[NCSAlignment] = Field(default_factory=list)
 
 
 class LessonPlan(BaseModel):
@@ -93,6 +117,7 @@ class Practice(BaseModel):
     submission: str = Field(min_length=1)
     rubric: list[str] = Field(min_length=1)
     citation_ids: list[str] = Field(min_length=1)
+    ncs_alignment: list[NCSAlignment] = Field(default_factory=list)
 
 
 class MultipleChoiceQuestion(BaseModel):
@@ -101,6 +126,7 @@ class MultipleChoiceQuestion(BaseModel):
     answer_index: int = Field(ge=0, le=3)
     explanation: str = Field(min_length=1)
     citation_ids: list[str] = Field(min_length=1)
+    ncs_alignment: list[NCSAlignment] = Field(default_factory=list)
 
 
 class PerformanceTask(BaseModel):
@@ -108,11 +134,23 @@ class PerformanceTask(BaseModel):
     description: str = Field(min_length=1)
     rubric: list[str] = Field(min_length=1)
     citation_ids: list[str] = Field(min_length=1)
+    ncs_alignment: list[NCSAlignment] = Field(default_factory=list)
 
 
 class Assessment(BaseModel):
     multiple_choice: list[MultipleChoiceQuestion] = Field(min_length=1)
     performance_task: PerformanceTask
+
+
+class ReviewEvent(BaseModel):
+    event_id: str = Field(min_length=1)
+    package_id: str = Field(min_length=1)
+    from_status: PackageStatus
+    to_status: PackageStatus
+    reviewer_name: str | None = None
+    reviewer_notes: str = Field(min_length=1)
+    changed_fields: list[str] = Field(default_factory=list)
+    created_at: datetime
 
 
 class LessonPackage(BaseModel):
@@ -122,6 +160,10 @@ class LessonPackage(BaseModel):
     lesson_plan: LessonPlan
     practice: Practice
     assessment: Assessment
+    evidence_sources: list[CitationDetail] = Field(default_factory=list)
+    template_metadata: StandardTemplateMetadata = Field(default_factory=StandardTemplateMetadata)
+    reviewer_notes: str | None = None
+    review_history: list[ReviewEvent] = Field(default_factory=list)
 
 
 class GenerationLog(BaseModel):
@@ -140,6 +182,15 @@ class GenerateRequest(BaseModel):
     retrieved_chunks: list[MaterialChunk] = Field(min_length=1)
 
 
+class PackageEditPatch(BaseModel):
+    lesson_plan: LessonPlan | None = None
+    practice: Practice | None = None
+    assessment: Assessment | None = None
+    edit_reason: str = Field(min_length=1)
+    reviewer_name: str | None = None
+
+
 class ReviewPatch(BaseModel):
     status: PackageStatus
     reviewer_notes: str = Field(min_length=1)
+    reviewer_name: str | None = None

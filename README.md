@@ -52,7 +52,7 @@ LessonPack AI는 직업훈련 강의 준비에 필요한 산출물을 한 번에
 - FastAPI API 서버
 - Streamlit 데모 UI
 - 프로젝트 생성, 자료 업로드, chunking, 검색, 생성, 검수, export API
-- DOCX/PPTX 산출물 생성
+- NCS 연계, 상세 근거 출처, 검수 이력이 포함된 DOCX/PPTX 산출물 생성
 - LiteLLM 기반 LLM provider
 - OpenAI primary 모델과 Gemini fallback 모델 설정
 - Langfuse tracing 연동
@@ -159,7 +159,9 @@ python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-
 python -m compileall src scripts tests
 python -m unittest discover -s tests
 python scripts\check_llm_provider.py --config config.example.yaml
+python scripts\run_mvp_demo.py --provider mock --output-dir outputs\demo
 python scripts\run_mvp_verification.py --output-dir outputs\eval --demo-case-id g003
+python scripts\inspect_export_quality.py --docx outputs\demo\g003_lesson_package.docx --pptx outputs\demo\g003_lesson_package.pptx
 ```
 
 실제 LLM, Langfuse, Supabase까지 포함한 검증은 `.env`에 운영 key를 설정한 뒤 수행합니다.
@@ -173,7 +175,9 @@ python scripts\run_mvp_verification.py --output-dir outputs\eval --demo-case-id 
 | POST | `/api/projects/{project_id}/materials` | 교재 업로드 및 chunk 생성 |
 | POST | `/api/projects/{project_id}/retrieve` | 근거 chunk 검색 |
 | POST | `/api/projects/{project_id}/generate` | 강의 패키지 생성 |
+| PATCH | `/api/packages/{package_id}` | 교안·실습·평가 본문 수정 |
 | PATCH | `/api/packages/{package_id}/review` | 검수 상태 변경 |
+| GET | `/api/packages/{package_id}/review-history` | 검수 이력 조회 |
 | GET | `/api/packages/{package_id}/export.docx` | DOCX 다운로드 |
 | GET | `/api/packages/{package_id}/export.pptx` | PPTX 다운로드 |
 | GET | `/api/packages/{package_id}/generation-log` | 생성 로그 조회 |

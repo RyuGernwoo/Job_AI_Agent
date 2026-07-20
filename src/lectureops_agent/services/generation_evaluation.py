@@ -46,11 +46,26 @@ def evaluate_lesson_package(
         missing_citation_items = _missing_citation_items(package, set(retrieved_chunk_ids))
         citation_coverage = _citation_coverage(package, set(retrieved_chunk_ids))
 
+    ncs_alignment_coverage = _ncs_alignment_coverage(package)
+    source_metadata_coverage = _source_metadata_coverage(package)
+    citation_diversity = _citation_diversity(package)
+
     checks = {
         "lesson_sections": not missing_lesson_sections,
         "practice_items": not missing_practice_items,
         "assessment": assessment_passed,
         "citations": not missing_citation_items,
+        "ncs_alignment": (
+            ncs_alignment_coverage["coverage"] >= float(expected.get("min_ncs_alignment_coverage", 0.0))
+            if expected.get("ncs_alignment_required")
+            else True
+        ),
+        "source_metadata": (
+            source_metadata_coverage["coverage"] >= float(expected.get("min_source_metadata_coverage", 0.0))
+            if expected.get("source_metadata_required")
+            else True
+        ),
+        "citation_diversity": citation_diversity["unique_chunk_count"] >= int(expected.get("min_unique_citation_chunks", 1)),
     }
     passed_checks = sum(1 for value in checks.values() if value)
     total_checks = len(checks)
@@ -68,6 +83,9 @@ def evaluate_lesson_package(
             "actual_performance_task_count": actual_performance_count,
         },
         "citation_coverage": citation_coverage,
+        "ncs_alignment_coverage": ncs_alignment_coverage,
+        "source_metadata_coverage": source_metadata_coverage,
+        "citation_diversity": citation_diversity,
         "missing_citation_items": missing_citation_items,
     }
 
@@ -130,6 +148,54 @@ def _citation_coverage(package: LessonPackage, retrieved_chunk_ids: set[str]) ->
         "valid_items": valid,
         "total_items": total,
         "coverage": round(valid / total, 4) if total else 0.0,
+    }
+
+
+def _ncs_alignment_coverage(package: LessonPackage) -> dict[str, int | float]:
+    groups = [item.ncs_alignment for item in package.lesson_plan.lecture_flow]
+    groups.append(package.practice.ncs_alignment)
+    groups.extend(question.ncs_alignment for question in package.assessment.multiple_choice)
+    groups.append(package.assessment.performance_task.ncs_alignment)
+    total = len(groups)
+    aligned = sum(1 for group in groups if group)
+    return {
+        "aligned_items": aligned,
+        "total_items": total,
+        "coverage": round(aligned / total, 4) if total else 0.0,
+    }
+
+
+def _source_metadata_coverage(package: LessonPackage) -> dict[str, int | float]:
+    total = len(package.evidence_sources)
+    complete = 0
+    for detail in package.evidence_sources:
+        has_source = bool(detail.source_name.strip())
+        has_location = bool(detail.source_url or detail.source_file or detail.license)
+        has_excerpt = bool(detail.excerpt.strip())
+        if has_source and has_location and has_excerpt:
+            complete += 1
+    return {
+        "complete_sources": complete,
+        "total_sources": total,
+        "coverage": round(complete / total, 4) if total else 0.0,
+    }
+
+
+def _citation_diversity(package: LessonPackage) -> dict[str, int]:
+    citation_ids: set[str] = set()
+    source_names: set[str] = set()
+    for item in package.lesson_plan.lecture_flow:
+        citation_ids.update(item.citation_ids)
+    citation_ids.update(package.practice.citation_ids)
+    for question in package.assessment.multiple_choice:
+        citation_ids.update(question.citation_ids)
+    citation_ids.update(package.assessment.performance_task.citation_ids)
+    for detail in package.evidence_sources:
+        if detail.chunk_id in citation_ids:
+            source_names.add(detail.source_name)
+    return {
+        "unique_chunk_count": len(citation_ids),
+        "unique_source_count": len(source_names),
     }
 
 

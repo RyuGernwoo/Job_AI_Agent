@@ -42,7 +42,12 @@ def sample_chunks(project_id: str) -> list[MaterialChunk]:
             source_type="md",
             page=None,
             text="The list methods append() and pop() support stack style practice.",
-            metadata={"tags": ["python", "list", "dictionary"], "section": "5. Data Structures"},
+            metadata={
+                "tags": ["python", "list", "dictionary"],
+                "section": "5. Data Structures",
+                "source_url": "https://docs.python.org/3/tutorial/datastructures.html",
+                "license": "PSF",
+            },
         ),
         MaterialChunk(
             chunk_id="ncs-data-structure-use-c005",
@@ -52,7 +57,12 @@ def sample_chunks(project_id: str) -> list[MaterialChunk]:
             source_type="md",
             page=None,
             text="자료구조 활용 학습모듈은 정렬 및 탐색 알고리즘 실습과 평가 기준을 포함한다.",
-            metadata={"tags": ["NCS", "data-structure", "search", "sort"], "section": "자료구조 활용"},
+            metadata={
+                "tags": ["NCS", "data-structure", "search", "sort"],
+                "section": "자료구조 활용",
+                "source_url": "https://www.ncs.go.kr/",
+                "license": "NCS",
+            },
         ),
     ]
 
@@ -91,6 +101,11 @@ class GenerationEvaluationTests(unittest.TestCase):
             "practice_required": ["list 또는 dictionary", "정렬 또는 탐색", "평가 기준"],
             "assessment_required": {"mcq_count": 5, "performance_task_count": 1},
             "citation_required": True,
+            "ncs_alignment_required": True,
+            "min_ncs_alignment_coverage": 0.9,
+            "source_metadata_required": True,
+            "min_source_metadata_coverage": 1.0,
+            "min_unique_citation_chunks": 2,
         }
 
         result = evaluate_lesson_package(package=package, expected=expected, retrieved_chunk_ids=[c.chunk_id for c in chunks])
@@ -100,6 +115,9 @@ class GenerationEvaluationTests(unittest.TestCase):
         self.assertEqual(result["missing_practice_items"], [])
         self.assertEqual(result["missing_citation_items"], [])
         self.assertEqual(result["citation_coverage"]["coverage"], 1.0)
+        self.assertGreaterEqual(result["ncs_alignment_coverage"]["coverage"], 0.9)
+        self.assertEqual(result["source_metadata_coverage"]["coverage"], 1.0)
+        self.assertGreaterEqual(result["citation_diversity"]["unique_chunk_count"], 2)
 
     def test_generation_evaluation_fails_missing_citations(self):
         project = sample_project()

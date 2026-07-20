@@ -70,17 +70,23 @@ API 서버는 다음 URL을 사용합니다.
 - 선택된 retrieved_chunks를 POST /api/projects/{project_id}/generate에 전달
 - 생성 중 로딩 상태 표시
 - 생성 결과를 다음 섹션으로 표시
-  - 교안 lesson_plan
-  - 실습 practice
-  - 평가 assessment
+  - 교안 lesson_plan과 ncs_alignment
+  - 실습 practice와 ncs_alignment
+  - 평가 assessment와 ncs_alignment
   - citation_ids
+  - evidence_sources
 - citation ID는 눈에 잘 띄는 작은 badge로 표시해 주세요.
+- evidence_sources는 원천명, URL, license, excerpt를 근거 패널로 표시해 주세요.
 
 5. 강사 검수 화면
 - 현재 package status 표시
+- 생성된 교안, 실습, 평가 문항을 섹션별로 수정할 수 있는 textarea/editor 제공
+- 수정 저장 시 PATCH /api/packages/{package_id} 호출
+- 수정 후에는 다시 draft 상태가 되며, reviewed/approved를 다시 거치도록 표시
 - reviewed, approved 상태로 변경할 수 있는 버튼 제공
 - reviewer_notes 입력
 - PATCH /api/packages/{package_id}/review 호출
+- GET /api/packages/{package_id}/review-history 결과를 검수 이력 패널로 표시
 - approved 이전에는 export 버튼을 비활성화하거나, 클릭 시 승인 필요 안내를 표시해 주세요.
 
 6. 다운로드 화면
@@ -148,12 +154,24 @@ GET /api/packages/{package_id}
 생성 로그 조회:
 GET /api/packages/{package_id}/generation-log
 
+패키지 본문 수정:
+PATCH /api/packages/{package_id}
+Request JSON:
+{
+  "lesson_plan": LessonPlan 또는 null,
+  "practice": Practice 또는 null,
+  "assessment": Assessment 또는 null,
+  "edit_reason": "도입 문장을 강사 검수 후 수정함",
+  "reviewer_name": "강사명 또는 별칭"
+}
+
 검수 상태 변경:
 PATCH /api/packages/{package_id}/review
 Request JSON:
 {
   "status": "approved",
-  "reviewer_notes": "강사가 검토 후 승인함"
+  "reviewer_notes": "강사가 검토 후 승인함",
+  "reviewer_name": "강사명 또는 별칭"
 }
 status 가능한 값:
 - draft
@@ -162,6 +180,9 @@ status 가능한 값:
 - exported
 - regenerated
 - needs_revision
+
+검수 이력 조회:
+GET /api/packages/{package_id}/review-history
 
 DOCX 다운로드:
 GET /api/packages/{package_id}/export.docx

@@ -64,3 +64,9 @@ session-dashboard.html
 
 # Separate Lovable frontend repository cloned locally
 lessonpack-ai/
+
+# etc
+*.doc
+*.docx
+*.pptx
+*.ppt
