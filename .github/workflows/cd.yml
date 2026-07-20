@@ -187,7 +187,7 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USERNAME: ${{ github.actor }}
           SERVICE_PORT: ${{ secrets.SERVICE_PORT || '8000' }}
-          LESSONPACK_CORS_ALLOW_ORIGINS: ${{ secrets.LESSONPACK_CORS_ALLOW_ORIGINS || 'https://lessonpack-ai.lovable.app' }}
+          LESSONPACK_CORS_ALLOW_ORIGINS: ${{ secrets.LESSONPACK_CORS_ALLOW_ORIGINS || 'https://7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovableproject.com,https://id-preview--7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovable.app,https://lessonpack-ai.lovable.app,http://localhost:5173,http://127.0.0.1:5173' }}
           LESSONPACK_CORS_ALLOW_CREDENTIALS: ${{ secrets.LESSONPACK_CORS_ALLOW_CREDENTIALS || 'false' }}
           LESSONPACK_PUBLIC_API_HOST: ${{ secrets.LESSONPACK_PUBLIC_API_HOST || '' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

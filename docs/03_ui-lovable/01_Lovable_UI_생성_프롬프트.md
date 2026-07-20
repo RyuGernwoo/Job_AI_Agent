@@ -8,7 +8,7 @@ API Base URL: `http://34.47.92.210:8000`
 
 Lovable repository는 `lessonpack-ai/` 폴더에 별도 저장소로 clone되어 있다. 부모 백엔드 저장소에서는 해당 폴더를 `.gitignore`에 추가해 실수로 함께 commit하지 않도록 한다.
 
-백엔드는 `https://lessonpack-ai.lovable.app` origin을 CORS 기본 허용 목록에 포함하도록 수정한다. 다만 mixed content 차단은 CORS만으로 해결되지 않으므로, Lovable 배포 UI에서 실제 API를 호출하려면 `VITE_API_BASE_URL`을 HTTPS API 주소로 설정해야 한다.
+백엔드는 Lovable 배포 도메인과 preview/project 도메인을 CORS 기본 허용 목록에 포함하도록 수정한다. 다만 mixed content 차단은 CORS만으로 해결되지 않으므로, Lovable 배포 UI에서 실제 API를 호출하려면 `VITE_API_BASE_URL`을 HTTPS API 주소로 설정해야 한다.
 
 ---
 
@@ -255,3 +255,10 @@ Lovable UI가 외부 브라우저에서 API를 호출하려면 다음 백엔드 
 - GCE API에 HTTPS 적용
 - `http://34.47.92.210:8000` 대신 HTTPS 도메인 제공
 - 장시간 LLM 생성 중 timeout이 발생하면 UI timeout과 backend timeout 조정
+
+
+## 6. 현재 Lovable CORS 허용 origin
+
+`	ext
+https://7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovableproject.com,https://id-preview--7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovable.app,https://lessonpack-ai.lovable.app
+`

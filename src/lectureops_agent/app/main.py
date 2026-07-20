@@ -32,6 +32,8 @@ CHUNK_OVERLAP_CHARS = 120
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 DEFAULT_CORS_ALLOW_ORIGINS = (
+    "https://7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovableproject.com",
+    "https://id-preview--7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovable.app",
     "https://lessonpack-ai.lovable.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -200,7 +202,7 @@ def _configure_cors(app: FastAPI) -> None:
         CORSMiddleware,
         allow_origins=allow_origins,
         allow_credentials=_env_flag("LESSONPACK_CORS_ALLOW_CREDENTIALS", default=False),
-        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+        allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )

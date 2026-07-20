@@ -126,21 +126,31 @@ class Stage1CoreTests(unittest.TestCase):
         self.assertEqual(body["course_title"], "Generative AI Python Basics")
         self.assertIn("project_id", body)
 
-    def test_fastapi_cors_allows_lovable_origin(self):
+    def test_fastapi_cors_allows_lovable_origins(self):
         client = create_isolated_test_client()
+        origins = [
+            "https://7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovableproject.com",
+            "https://id-preview--7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovable.app",
+            "https://lessonpack-ai.lovable.app",
+        ]
 
-        response = client.options(
-            "/api/projects",
-            headers={
-                "Origin": "https://lessonpack-ai.lovable.app",
-                "Access-Control-Request-Method": "POST",
-            },
-        )
+        for origin in origins:
+            with self.subTest(origin=origin):
+                response = client.options(
+                    "/api/projects",
+                    headers={
+                        "Origin": origin,
+                        "Access-Control-Request-Method": "POST",
+                    },
+                )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["access-control-allow-origin"], "https://lessonpack-ai.lovable.app")
-        self.assertIn("POST", response.headers["access-control-allow-methods"])
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["access-control-allow-origin"], origin)
+                self.assertIn("POST", response.headers["access-control-allow-methods"])
 
+                health = client.get("/health", headers={"Origin": origin})
+                self.assertEqual(health.status_code, 200)
+                self.assertEqual(health.headers["access-control-allow-origin"], origin)
     def test_fastapi_material_upload_chunks_markdown_file(self):
         client = create_isolated_test_client()
         created = client.post("/api/projects", json=sample_project_create().model_dump())

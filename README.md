@@ -132,7 +132,7 @@ https://lessonpack-ai.lovable.app/
 백엔드는 Lovable 도메인을 CORS 허용 origin에 포함합니다.
 
 ```powershell
-LESSONPACK_CORS_ALLOW_ORIGINS=https://lessonpack-ai.lovable.app
+LESSONPACK_CORS_ALLOW_ORIGINS=https://7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovableproject.com,https://id-preview--7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovable.app,https://lessonpack-ai.lovable.app
 LESSONPACK_CORS_ALLOW_CREDENTIALS=false
 ```
 

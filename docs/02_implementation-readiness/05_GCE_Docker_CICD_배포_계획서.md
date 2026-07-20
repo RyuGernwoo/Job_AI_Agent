@@ -219,7 +219,7 @@ GCE 배포와 운영 실행에 필요한 값을 GitHub Repository Secrets에 등
 | `GCE_USERNAME` | 예 | SSH 접속 사용자명 |
 | `GCE_SSH_KEY` | 예 | SSH 개인키 전체 내용 |
 | `SERVICE_PORT` | 선택 | 외부 노출 포트, 기본 `8000` |
-| `LESSONPACK_CORS_ALLOW_ORIGINS` | 선택 | Lovable 등 브라우저 UI origin. 기본 `https://lessonpack-ai.lovable.app` |
+| `LESSONPACK_CORS_ALLOW_ORIGINS` | 선택 | Lovable 배포/preview/project origin. 쉼표로 여러 origin 지정 |
 | `LESSONPACK_CORS_ALLOW_CREDENTIALS` | 선택 | CORS credential 허용 여부, 기본 `false` |
 | `LESSONPACK_PUBLIC_API_HOST` | 선택 | Caddy HTTPS reverse proxy용 public host. 예: `api.example.com` |
 | `OPENAI_API_KEY` | 예 | LiteLLM primary OpenAI 호출 |
