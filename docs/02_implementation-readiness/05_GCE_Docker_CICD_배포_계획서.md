@@ -219,6 +219,9 @@ GCE 배포와 운영 실행에 필요한 값을 GitHub Repository Secrets에 등
 | `GCE_USERNAME` | 예 | SSH 접속 사용자명 |
 | `GCE_SSH_KEY` | 예 | SSH 개인키 전체 내용 |
 | `SERVICE_PORT` | 선택 | 외부 노출 포트, 기본 `8000` |
+| `LESSONPACK_CORS_ALLOW_ORIGINS` | 선택 | Lovable 등 브라우저 UI origin. 기본 `https://lessonpack-ai.lovable.app` |
+| `LESSONPACK_CORS_ALLOW_CREDENTIALS` | 선택 | CORS credential 허용 여부, 기본 `false` |
+| `LESSONPACK_PUBLIC_API_HOST` | 선택 | Caddy HTTPS reverse proxy용 public host. 예: `api.example.com` |
 | `OPENAI_API_KEY` | 예 | LiteLLM primary OpenAI 호출 |
 | `GEMINI_API_KEY` | 예 | Gemini fallback 호출 |
 | `LANGFUSE_PUBLIC_KEY` | 예 | Langfuse trace public key |
@@ -504,6 +507,8 @@ docker compose version
 - `docker` 명령을 sudo 없이 실행 가능
 - `/home/<GCE_USERNAME>/lessonpack-ai` 디렉터리 생성 가능
 - GCE firewall에서 `tcp:8000` 접근 가능
+- Caddy reverse proxy를 사용하려면 `tcp:80`, `tcp:443` 접근 가능
+- `LESSONPACK_PUBLIC_API_HOST`가 GCE 외부 IP를 가리키는 DNS 이름으로 설정됨
 - GitHub Actions에서 사용할 SSH private key가 등록됨
 
 ## 11. Supabase 준비 계획

@@ -187,6 +187,9 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USERNAME: ${{ github.actor }}
           SERVICE_PORT: ${{ secrets.SERVICE_PORT || '8000' }}
+          LESSONPACK_CORS_ALLOW_ORIGINS: ${{ secrets.LESSONPACK_CORS_ALLOW_ORIGINS || 'https://lessonpack-ai.lovable.app' }}
+          LESSONPACK_CORS_ALLOW_CREDENTIALS: ${{ secrets.LESSONPACK_CORS_ALLOW_CREDENTIALS || 'false' }}
+          LESSONPACK_PUBLIC_API_HOST: ${{ secrets.LESSONPACK_PUBLIC_API_HOST || '' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
@@ -217,7 +220,7 @@ jobs:
           ssh_target="${GCE_USERNAME}@${GCE_HOST}"
 
           ssh -i "$HOME/.ssh/lessonpack-ai" "$ssh_target" \
-            "DEPLOY_DIR='$deploy_dir' DEPLOY_IMAGE='$DEPLOY_IMAGE' DEPLOY_MODE='$DEPLOY_MODE' GHCR_TOKEN_B64='$ghcr_token_b64' GHCR_USERNAME='$GHCR_USERNAME' LANGFUSE_OTEL_HOST_B64='$langfuse_otel_host_b64' LANGFUSE_PUBLIC_KEY_B64='$langfuse_public_key_b64' LANGFUSE_SECRET_KEY_B64='$langfuse_secret_key_b64' GEMINI_API_KEY_B64='$gemini_api_key_b64' OPENAI_API_KEY_B64='$openai_api_key_b64' REGISTRY='$REGISTRY' SERVICE_PORT='$SERVICE_PORT' SUPABASE_SERVICE_ROLE_KEY_B64='$supabase_service_role_key_b64' SUPABASE_URL_B64='$supabase_url_b64' LESSONPACK_SUPABASE_TABLE='$LESSONPACK_SUPABASE_TABLE' LESSONPACK_SUPABASE_MATCH_FUNCTION='$LESSONPACK_SUPABASE_MATCH_FUNCTION' LESSONPACK_SUPABASE_MATCH_THRESHOLD='$LESSONPACK_SUPABASE_MATCH_THRESHOLD' LESSONPACK_LITELLM_MODEL='$LESSONPACK_LITELLM_MODEL' LESSONPACK_LITELLM_FALLBACK_MODELS='$LESSONPACK_LITELLM_FALLBACK_MODELS' LESSONPACK_LITELLM_CALLBACKS='$LESSONPACK_LITELLM_CALLBACKS' bash -s" <<'REMOTE'
+            "DEPLOY_DIR='$deploy_dir' DEPLOY_IMAGE='$DEPLOY_IMAGE' DEPLOY_MODE='$DEPLOY_MODE' GHCR_TOKEN_B64='$ghcr_token_b64' GHCR_USERNAME='$GHCR_USERNAME' LANGFUSE_OTEL_HOST_B64='$langfuse_otel_host_b64' LANGFUSE_PUBLIC_KEY_B64='$langfuse_public_key_b64' LANGFUSE_SECRET_KEY_B64='$langfuse_secret_key_b64' GEMINI_API_KEY_B64='$gemini_api_key_b64' OPENAI_API_KEY_B64='$openai_api_key_b64' REGISTRY='$REGISTRY' SERVICE_PORT='$SERVICE_PORT' LESSONPACK_CORS_ALLOW_ORIGINS='$LESSONPACK_CORS_ALLOW_ORIGINS' LESSONPACK_CORS_ALLOW_CREDENTIALS='$LESSONPACK_CORS_ALLOW_CREDENTIALS' LESSONPACK_PUBLIC_API_HOST='$LESSONPACK_PUBLIC_API_HOST' SUPABASE_SERVICE_ROLE_KEY_B64='$supabase_service_role_key_b64' SUPABASE_URL_B64='$supabase_url_b64' LESSONPACK_SUPABASE_TABLE='$LESSONPACK_SUPABASE_TABLE' LESSONPACK_SUPABASE_MATCH_FUNCTION='$LESSONPACK_SUPABASE_MATCH_FUNCTION' LESSONPACK_SUPABASE_MATCH_THRESHOLD='$LESSONPACK_SUPABASE_MATCH_THRESHOLD' LESSONPACK_LITELLM_MODEL='$LESSONPACK_LITELLM_MODEL' LESSONPACK_LITELLM_FALLBACK_MODELS='$LESSONPACK_LITELLM_FALLBACK_MODELS' LESSONPACK_LITELLM_CALLBACKS='$LESSONPACK_LITELLM_CALLBACKS' bash -s" <<'REMOTE'
           set -euo pipefail
 
           decode() { printf '%s' "$1" | base64 -d; }
@@ -241,6 +244,9 @@ jobs:
               printf 'APP_IMAGE=%s\n' "$image"
               printf 'PYTHONPATH=/app/src\n'
               printf 'LESSONPACK_CONFIG=\n'
+              printf 'LESSONPACK_CORS_ALLOW_ORIGINS=%s\n' "$LESSONPACK_CORS_ALLOW_ORIGINS"
+              printf 'LESSONPACK_CORS_ALLOW_CREDENTIALS=%s\n' "$LESSONPACK_CORS_ALLOW_CREDENTIALS"
+              printf 'LESSONPACK_PUBLIC_API_HOST=%s\n' "$LESSONPACK_PUBLIC_API_HOST"
               printf 'LESSONPACK_LLM_PROVIDER=litellm\n'
               printf 'LESSONPACK_LITELLM_MODEL=%s\n' "$LESSONPACK_LITELLM_MODEL"
               printf 'LESSONPACK_LITELLM_FALLBACK_MODELS=%s\n' "$LESSONPACK_LITELLM_FALLBACK_MODELS"
@@ -267,6 +273,19 @@ jobs:
             chmod 600 .env
           }
 
+
+          write_caddyfile() {
+            if [ -z "${LESSONPACK_PUBLIC_API_HOST:-}" ]; then
+              rm -f Caddyfile
+              return 0
+            fi
+            cat > Caddyfile <<CADDY
+          ${LESSONPACK_PUBLIC_API_HOST} {
+            encode gzip
+            reverse_proxy lessonpack-api:8000
+          }
+          CADDY
+          }
           write_compose() {
             cat > docker-compose.yml <<'COMPOSE'
           name: lessonpack-ai
@@ -297,6 +316,28 @@ jobs:
                 retries: 3
                 start_period: 10s
           COMPOSE
+            if [ -n "${LESSONPACK_PUBLIC_API_HOST:-}" ]; then
+              cat >> docker-compose.yml <<'COMPOSE'
+
+            lessonpack-caddy:
+              image: caddy:2.8-alpine
+              container_name: lessonpack-caddy
+              restart: unless-stopped
+              depends_on:
+                - lessonpack-api
+              ports:
+                - "80:80"
+                - "443:443"
+              volumes:
+                - ./Caddyfile:/etc/caddy/Caddyfile:ro
+                - caddy_data:/data
+                - caddy_config:/config
+
+          volumes:
+            caddy_data:
+            caddy_config:
+          COMPOSE
+            fi
           }
 
           wait_for_health() {
@@ -330,6 +371,7 @@ jobs:
 
           printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
 
+          write_caddyfile
           write_compose
           write_env "$DEPLOY_IMAGE"
 

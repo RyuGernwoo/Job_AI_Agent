@@ -43,6 +43,8 @@ docs/
     03_검증_프로토콜.md
     04_데이터셋_활용_전처리_계획서.md
     05_GCE_Docker_CICD_배포_계획서.md
+  03_ui-lovable/
+    01_Lovable_UI_생성_프롬프트.md
   90_reference/
     KOSENA_AI_서비스기획.md
 ```
@@ -69,6 +71,7 @@ docs/
 | `00_project-brief/` | 프로젝트 주제, MVP 범위, 핵심 흐름 정리 |
 | `01_kosena-service-planning/` | KOSENA 서비스 기획 산출물 7종 |
 | `02_implementation-readiness/` | 구현, 데이터셋, 검증, 배포 준비 문서 |
+| `03_ui-lovable/` | Lovable UI 생성 및 외부 배포 UI 연동 문서 |
 | `90_reference/` | 원본 수업 자료와 참고 문서 |
 
 ## 갱신 원칙

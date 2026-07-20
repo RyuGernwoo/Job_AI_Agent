@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from lectureops_agent.config import LessonPackConfig, load_config
@@ -30,6 +31,11 @@ CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+DEFAULT_CORS_ALLOW_ORIGINS = (
+    "https://lessonpack-ai.lovable.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+)
 
 
 def create_app(
@@ -43,6 +49,7 @@ def create_app(
         description="Job training lesson package generation assistant MVP",
         version="0.1.0",
     )
+    _configure_cors(app)
     config = app_config or _load_config_from_env()
     chunk_size_chars = config.chunk_size_chars if config else CHUNK_SIZE_CHARS
     chunk_overlap_chars = config.chunk_overlap_chars if config else CHUNK_OVERLAP_CHARS
@@ -184,6 +191,33 @@ def create_app(
 
     return app
 
+
+def _configure_cors(app: FastAPI) -> None:
+    allow_origins = _cors_allow_origins_from_env()
+    if not allow_origins:
+        return
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins,
+        allow_credentials=_env_flag("LESSONPACK_CORS_ALLOW_CREDENTIALS", default=False),
+        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["Content-Disposition"],
+    )
+
+
+def _cors_allow_origins_from_env() -> list[str]:
+    value = os.getenv("LESSONPACK_CORS_ALLOW_ORIGINS")
+    if value is None:
+        return list(DEFAULT_CORS_ALLOW_ORIGINS)
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+def _env_flag(name: str, *, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip().casefold() in {"1", "true", "yes", "on"}
 def _load_config_from_env() -> LessonPackConfig | None:
     config_path = os.getenv("LESSONPACK_CONFIG")
     if not config_path:

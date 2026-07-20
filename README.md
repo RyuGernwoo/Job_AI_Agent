@@ -119,6 +119,26 @@ python scripts\check_deployment.py http://localhost:8000
 docker compose down
 ```
 
+### Lovable UI 연동
+
+Lovable 배포 UI는 다음 주소를 기준으로 준비되어 있습니다.
+
+```text
+https://lessonpack-ai.lovable.app/
+```
+
+브라우저 보안 정책상 HTTPS 페이지에서 `http://34.47.92.210:8000` API를 직접 호출하면 mixed content로 차단될 수 있습니다. 실제 외부 UI 연동에는 HTTPS API 주소가 필요합니다.
+
+백엔드는 Lovable 도메인을 CORS 허용 origin에 포함합니다.
+
+```powershell
+LESSONPACK_CORS_ALLOW_ORIGINS=https://lessonpack-ai.lovable.app
+LESSONPACK_CORS_ALLOW_CREDENTIALS=false
+```
+
+GCE 배포에서 HTTPS reverse proxy를 함께 올리려면 GitHub Secret에 `LESSONPACK_PUBLIC_API_HOST`를 등록합니다. 이 값은 raw IP가 아니라 인증서 발급 가능한 도메인이어야 합니다. 예: `api.example.com` 또는 GCE IP를 가리키는 `sslip.io`/`nip.io` 계열 테스트 도메인.
+
+Lovable 프론트의 `VITE_API_BASE_URL`은 최종 HTTPS API 주소로 설정해야 합니다.
 ### 데이터셋 준비와 Supabase 적재
 
 원천 데이터는 `data/raw/`에 로컬로 보관하며 Git에 포함하지 않습니다. MVP 검증에 필요한 작은 gold set만 `data/gold/`에 포함합니다.

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -125,6 +125,21 @@ class Stage1CoreTests(unittest.TestCase):
         body = created.json()
         self.assertEqual(body["course_title"], "Generative AI Python Basics")
         self.assertIn("project_id", body)
+
+    def test_fastapi_cors_allows_lovable_origin(self):
+        client = create_isolated_test_client()
+
+        response = client.options(
+            "/api/projects",
+            headers={
+                "Origin": "https://lessonpack-ai.lovable.app",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["access-control-allow-origin"], "https://lessonpack-ai.lovable.app")
+        self.assertIn("POST", response.headers["access-control-allow-methods"])
 
     def test_fastapi_material_upload_chunks_markdown_file(self):
         client = create_isolated_test_client()
