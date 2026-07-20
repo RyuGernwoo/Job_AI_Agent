@@ -1,4 +1,4 @@
-"""Check LessonPack AI LLM provider readiness."""
+﻿"""Check LessonPack AI LLM provider readiness."""
 
 from __future__ import annotations
 
@@ -19,14 +19,22 @@ from lectureops_agent.services.llm_provider_readiness import check_llm_provider_
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check LessonPack AI LLM provider readiness.")
     parser.add_argument("--config", type=Path, help="Optional config path. Also sets LESSONPACK_CONFIG for probing.")
+    parser.add_argument(
+        "--config-only",
+        action="store_true",
+        help="Validate provider config structure without requiring secret environment variables. Use this in CI.",
+    )
     parser.add_argument("--require-real", action="store_true", help="Fail unless a non-mock provider is ready.")
     parser.add_argument("--probe", action="store_true", help="Call the configured provider with a short smoke prompt.")
     args = parser.parse_args(argv)
 
+    if args.config_only and (args.require_real or args.probe):
+        parser.error("--config-only cannot be combined with --require-real or --probe")
+
     if args.config:
         os.environ["LESSONPACK_CONFIG"] = str(args.config)
 
-    report = check_llm_provider_readiness(config_path=args.config)
+    report = check_llm_provider_readiness(config_path=args.config, require_secrets=not args.config_only)
     if args.probe and report["ready"]:
         probe = _probe_provider()
         report["probe"] = probe
@@ -36,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
+    if args.config_only:
+        return 0 if report["ready"] else 1
     if args.require_real:
         return 0 if report["real_provider_ready"] else 1
     return 0 if report["ready"] else 1

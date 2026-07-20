@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -17,6 +17,7 @@ def check_llm_provider_readiness(
     *,
     config_path: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    require_secrets: bool = True,
 ) -> dict:
     if env is None:
         load_env_file()
@@ -43,11 +44,13 @@ def check_llm_provider_readiness(
                 missing=missing,
                 errors=errors,
                 next_steps=next_steps,
+                require_secrets=require_secrets,
             )
-            ready = not missing and not errors
+            ready = _ready(missing=missing, errors=errors, require_secrets=require_secrets)
             return {
                 "ready": ready,
-                "real_provider_ready": ready,
+                "real_provider_ready": ready if require_secrets else False,
+                "secret_check": _secret_check(require_secrets),
                 "config_path": None,
                 "config_loaded": False,
                 "provider": "litellm",
@@ -68,6 +71,7 @@ def check_llm_provider_readiness(
         return {
             "ready": True,
             "real_provider_ready": False,
+            "secret_check": _secret_check(require_secrets),
             "config_path": None,
             "config_loaded": False,
             "provider": "mock",
@@ -83,6 +87,7 @@ def check_llm_provider_readiness(
         return {
             "ready": False,
             "real_provider_ready": False,
+            "secret_check": _secret_check(require_secrets),
             "config_path": str(resolved_config_path),
             "config_loaded": False,
             "provider": None,
@@ -93,12 +98,21 @@ def check_llm_provider_readiness(
         }
 
     callbacks = _configured_callbacks(config)
-    _validate_provider_config(config, callbacks=callbacks, env=env, missing=missing, errors=errors, next_steps=next_steps)
+    _validate_provider_config(
+        config,
+        callbacks=callbacks,
+        env=env,
+        missing=missing,
+        errors=errors,
+        next_steps=next_steps,
+        require_secrets=require_secrets,
+    )
     real_provider = config.llm.provider in (HTTP_PROVIDER_NAMES | LITELLM_PROVIDER_NAMES)
-    ready = not missing and not errors
+    ready = _ready(missing=missing, errors=errors, require_secrets=require_secrets)
     return {
         "ready": ready,
-        "real_provider_ready": ready and real_provider,
+        "real_provider_ready": ready and real_provider if require_secrets else False,
+        "secret_check": _secret_check(require_secrets),
         "config_path": str(resolved_config_path),
         "config_loaded": True,
         "provider": config.llm.provider,
@@ -111,6 +125,14 @@ def check_llm_provider_readiness(
         "errors": errors,
         "next_steps": next_steps,
     }
+
+
+def _ready(*, missing: list[str], errors: list[str], require_secrets: bool) -> bool:
+    return not errors and (not require_secrets or not missing)
+
+
+def _secret_check(require_secrets: bool) -> str:
+    return "required" if require_secrets else "skipped"
 
 
 def _config_path_from_env(env: Mapping[str, str]) -> Path | None:
@@ -132,13 +154,21 @@ def _validate_provider_config(
     missing: list[str],
     errors: list[str],
     next_steps: list[str],
+    require_secrets: bool,
 ) -> None:
     if config.llm.provider == "mock":
         next_steps.append("Switch llm.provider to litellm for real LLMOps proof.")
         return
 
     if config.llm.provider in HTTP_PROVIDER_NAMES:
-        _validate_http_provider_config(config, env=env, missing=missing, errors=errors, next_steps=next_steps)
+        _validate_http_provider_config(
+            config,
+            env=env,
+            missing=missing,
+            errors=errors,
+            next_steps=next_steps,
+            require_secrets=require_secrets,
+        )
         return
 
     if config.llm.provider == "litellm":
@@ -150,6 +180,7 @@ def _validate_provider_config(
             missing=missing,
             errors=errors,
             next_steps=next_steps,
+            require_secrets=require_secrets,
         )
         return
 
@@ -163,6 +194,7 @@ def _validate_http_provider_config(
     missing: list[str],
     errors: list[str],
     next_steps: list[str],
+    require_secrets: bool,
 ) -> None:
     if not config.llm.base_url:
         _append_missing(missing, "llm.base_url")
@@ -170,7 +202,7 @@ def _validate_http_provider_config(
     if not config.llm.api_key_env:
         _append_missing(missing, "llm.api_key_env")
         next_steps.append("Set llm.api_key_env to the name of the API key environment variable.")
-    elif not env.get(config.llm.api_key_env, "").strip():
+    elif require_secrets and not env.get(config.llm.api_key_env, "").strip():
         _append_missing(missing, config.llm.api_key_env)
         next_steps.append(f"Set ${config.llm.api_key_env} before running real provider evaluation.")
     if config.llm.timeout_seconds is None:
@@ -187,10 +219,14 @@ def _validate_litellm_config(
     missing: list[str],
     errors: list[str],
     next_steps: list[str],
+    require_secrets: bool,
 ) -> None:
     if not model.strip():
         _append_missing(missing, "llm.model")
         next_steps.append("Set llm.model to the primary LiteLLM model, e.g. gpt-4o-mini.")
+        return
+
+    if not require_secrets:
         return
 
     required_env_vars = _required_key_envs_for_models([model, *fallback_models])

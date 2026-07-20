@@ -74,7 +74,7 @@ jobs:
         run: python -m compileall src scripts tests
 
       - name: Check provider configuration
-        run: python scripts/check_llm_provider.py --config config.example.yaml
+        run: python scripts/check_llm_provider.py --config config.example.yaml --config-only
 
   unit-tests:
     name: Unit Tests

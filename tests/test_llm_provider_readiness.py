@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import tempfile
 import unittest
@@ -106,6 +106,37 @@ class LLMProviderReadinessTests(unittest.TestCase):
         self.assertEqual(report["fallback_models"], ["gemini/gemini-2.0-flash"])
         self.assertEqual(report["callbacks"], ["langfuse_otel"])
 
+    def test_litellm_config_only_skips_secret_requirements(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "chunk_size_chars: 800",
+                        "chunk_overlap_chars: 120",
+                        "retrieval_top_k: 5",
+                        "llm:",
+                        "  provider: litellm",
+                        "  model: gpt-4o-mini",
+                        "  fallback_models:",
+                        "    - gemini/gemini-2.0-flash",
+                        "  timeout_seconds: 30",
+                        "  callbacks:",
+                        "    - langfuse_otel",
+                        "vector_store:",
+                        "  provider: memory",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            report = check_llm_provider_readiness(config_path=config_path, env={}, require_secrets=False)
+
+        self.assertTrue(report["ready"], report)
+        self.assertFalse(report["real_provider_ready"])
+        self.assertEqual(report["secret_check"], "skipped")
+        self.assertEqual(report["missing"], [])
+        self.assertEqual(report["provider"], "litellm")
     def test_litellm_provider_reports_missing_model_and_langfuse_keys(self):
         env = {
             "LESSONPACK_LLM_PROVIDER": "litellm",
