@@ -22,6 +22,12 @@ class VectorStoreConfig(BaseModel):
     table_name: str = "lessonpack_chunks"
     match_function: str = "match_lessonpack_chunks"
     match_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
+    baseline_project_id: str = "mvp-dataset"
+    candidate_k: int = Field(default=20, ge=1, le=200)
+    embedding_provider: Literal["hash", "litellm"] = "hash"
+    embedding_model: str = "lessonpack-hash-v1"
+    embedding_dimensions: int = Field(default=64, gt=0)
+    embedding_column: str = "embedding"
 
 
 class LessonPackConfig(BaseModel):

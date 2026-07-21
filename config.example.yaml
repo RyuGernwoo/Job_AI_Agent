@@ -31,3 +31,12 @@ vector_store:
   table_name: lessonpack_chunks
   match_function: match_lessonpack_chunks
   match_threshold: 0.0
+  baseline_project_id: mvp-dataset
+  candidate_k: 20
+  # Keep hash/64/embedding for the existing 43-chunk baseline.
+  # After applying migration 002 and reindexing, use litellm/text-embedding-3-small/1536/embedding_v2
+  # with match_lessonpack_chunks_v2.
+  embedding_provider: hash
+  embedding_model: lessonpack-hash-v1
+  embedding_dimensions: 64
+  embedding_column: embedding

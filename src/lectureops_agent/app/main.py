@@ -1,5 +1,7 @@
+import hashlib
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -11,13 +13,20 @@ from lectureops_agent.env import load_env_file
 from lectureops_agent.models.schemas import (
     GenerateRequest,
     GenerationLog,
+    GenerationRun,
     LessonPackage,
     MaterialChunk,
+    MaterialDocument,
     MaterialIngestResult,
     PackageEditPatch,
     Project,
     ProjectCreate,
+    RAGGenerateRequest,
+    RAGGenerateResponse,
+    RAGRetrieveRequest,
+    RAGRetrieveResponse,
     RetrieveRequest,
+    RetrievalRun,
     ReviewEvent,
     ReviewPatch,
 )
@@ -28,10 +37,24 @@ from lectureops_agent.services.export_service import (
     export_lesson_package_pptx,
 )
 from lectureops_agent.services.generation_service import generate_lesson_package_with_log
-from lectureops_agent.services.llm_provider import LLMProvider, create_llm_provider_from_config, create_llm_provider_from_env
+from lectureops_agent.services.llm_provider import (
+    LLMProvider,
+    create_llm_provider_from_config,
+    create_llm_provider_from_env,
+    llm_trace_context,
+)
 from lectureops_agent.services.parser_service import decode_text_material
+from lectureops_agent.services.rag_repository import (
+    RAGRepository,
+    create_rag_repository_for_vector_store,
+)
+from lectureops_agent.services.rag_service import retrieve_evidence, retrieval_response
 from lectureops_agent.services.review_service import apply_package_edit, apply_review_patch
-from lectureops_agent.services.vector_store import VectorStore, create_vector_store_from_config, create_vector_store_from_env
+from lectureops_agent.services.vector_store import (
+    VectorStore,
+    create_vector_store_from_config,
+    create_vector_store_from_env,
+)
 
 CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
@@ -50,8 +73,10 @@ def create_app(
     vector_store: VectorStore | None = None,
     llm_provider: LLMProvider | None = None,
     app_config: LessonPackConfig | None = None,
+    rag_repository: RAGRepository | None = None,
 ) -> FastAPI:
     load_env_file()
+    explicit_app_config = app_config is not None
     app = FastAPI(
         title="LessonPack AI",
         description="Job training lesson package generation assistant MVP",
@@ -61,11 +86,26 @@ def create_app(
     config = app_config or _load_config_from_env()
     chunk_size_chars = config.chunk_size_chars if config else CHUNK_SIZE_CHARS
     chunk_overlap_chars = config.chunk_overlap_chars if config else CHUNK_OVERLAP_CHARS
-    projects: dict[str, Project] = {}
-    vector_store = vector_store or (create_vector_store_from_config(config.vector_store) if config else create_vector_store_from_env())
+    retrieval_top_k = _runtime_int(
+        "LESSONPACK_RETRIEVAL_TOP_K",
+        config.retrieval_top_k if config else 5,
+    )
+    candidate_k = _runtime_int(
+        "LESSONPACK_RETRIEVAL_CANDIDATE_K",
+        config.vector_store.candidate_k if config else 20,
+    )
+    baseline_project_id = os.getenv(
+        "LESSONPACK_BASELINE_PROJECT_ID",
+        config.vector_store.baseline_project_id if config else "mvp-dataset",
+    )
+    vector_store = vector_store or _create_runtime_vector_store(
+        config,
+        allow_env_override=not explicit_app_config,
+    )
+    rag_repository = rag_repository or create_rag_repository_for_vector_store(vector_store)
     if llm_provider is None:
         llm_provider = create_llm_provider_from_config(config) if config else create_llm_provider_from_env()
-    project_document_counts: dict[str, int] = {}
+
     packages: dict[str, LessonPackage] = {}
     generation_logs: dict[str, GenerationLog] = {}
 
@@ -73,27 +113,38 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "lessonpack-ai"}
 
+    @app.get("/health/rag")
+    def rag_health() -> dict:
+        persistence = rag_repository.readiness()
+        return {
+            "status": "ok" if persistence["ready"] else "not_ready",
+            "vector_store": type(vector_store).__name__,
+            "repository": type(rag_repository).__name__,
+            "baseline_project_id": baseline_project_id,
+            "retrieval_top_k": retrieval_top_k,
+            "persistence": persistence,
+        }
+
     @app.post("/api/projects", response_model=Project)
     def create_project(payload: ProjectCreate) -> Project:
         project = payload.to_project()
-        projects[project.project_id] = project
-        project_document_counts[project.project_id] = 0
+        try:
+            rag_repository.save_project(project)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         return project
 
     @app.post("/api/projects/{project_id}/materials", response_model=MaterialIngestResult)
     async def upload_material(project_id: str, file: UploadFile = File(...)) -> MaterialIngestResult:
-        project = projects.get(project_id)
-        if project is None:
-            raise HTTPException(status_code=404, detail="project not found")
-
+        _require_project(rag_repository, project_id)
         content = await file.read()
         try:
             text, source_type = decode_text_material(file.filename or "uploaded.txt", content)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        project_document_counts[project_id] += 1
-        document_id = f"doc{project_document_counts[project_id]:03d}"
+        document_id = rag_repository.next_document_id(project_id)
+        metadata = {"content_type": file.content_type or "application/octet-stream"}
         chunks = chunk_text(
             project_id=project_id,
             document_id=document_id,
@@ -102,9 +153,24 @@ def create_app(
             text=text,
             chunk_size_chars=chunk_size_chars,
             chunk_overlap_chars=chunk_overlap_chars,
-            metadata={"content_type": file.content_type or "application/octet-stream"},
+            metadata=metadata,
         )
-        vector_store.upsert(project_id=project_id, chunks=chunks)
+        try:
+            vector_store.upsert(project_id=project_id, chunks=chunks)
+            rag_repository.save_document(
+                MaterialDocument(
+                    document_id=document_id,
+                    project_id=project_id,
+                    source_name=file.filename or "uploaded.txt",
+                    source_type=source_type,
+                    content_hash=hashlib.sha256(content).hexdigest(),
+                    chunk_count=len(chunks),
+                    metadata=metadata,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         return MaterialIngestResult(
             project_id=project_id,
             document_id=document_id,
@@ -116,20 +182,98 @@ def create_app(
 
     @app.post("/api/projects/{project_id}/retrieve", response_model=list[MaterialChunk])
     def retrieve(project_id: str, payload: RetrieveRequest) -> list[MaterialChunk]:
-        project = projects.get(project_id)
-        if project is None:
-            raise HTTPException(status_code=404, detail="project not found")
+        _require_project(rag_repository, project_id)
         try:
             return vector_store.query(project_id=project_id, query=payload.query, top_k=payload.top_k)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/api/projects/{project_id}/rag/retrieve", response_model=RAGRetrieveResponse)
+    def rag_retrieve(project_id: str, payload: RAGRetrieveRequest) -> RAGRetrieveResponse:
+        project = _require_project(rag_repository, project_id)
+        run = _retrieve_for_request(
+            project=project,
+            query=payload.query,
+            top_k=payload.top_k or retrieval_top_k,
+            include_baseline=payload.include_baseline,
+            vector_store=vector_store,
+            rag_repository=rag_repository,
+            candidate_k=candidate_k,
+            baseline_project_id=baseline_project_id,
+        )
+        return retrieval_response(run)
+
+    @app.get("/api/retrieval-runs/{run_id}", response_model=RetrievalRun)
+    def get_retrieval_run(run_id: str) -> RetrievalRun:
+        try:
+            run = rag_repository.get_retrieval_run(run_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if run is None:
+            raise HTTPException(status_code=404, detail="retrieval run not found")
+        return run
+
+    @app.post("/api/projects/{project_id}/rag/generate", response_model=RAGGenerateResponse)
+    def rag_generate(project_id: str, payload: RAGGenerateRequest) -> RAGGenerateResponse:
+        project = _require_project(rag_repository, project_id)
+        retrieval_run = _retrieve_for_request(
+            project=project,
+            query=payload.query,
+            top_k=payload.top_k or retrieval_top_k,
+            include_baseline=payload.include_baseline,
+            vector_store=vector_store,
+            rag_repository=rag_repository,
+            candidate_k=candidate_k,
+            baseline_project_id=baseline_project_id,
+        )
+        if not retrieval_run.evidence:
+            raise HTTPException(
+                status_code=422,
+                detail="검색 근거가 없습니다. 자료를 추가하거나 질의를 구체화하십시오.",
+            )
+
+        with llm_trace_context(
+            {
+                "trace_id": retrieval_run.trace_id,
+                "retrieval_run_id": retrieval_run.run_id,
+                "project_id": project_id,
+            }
+        ):
+            result = generate_lesson_package_with_log(
+                project=project,
+                retrieved_chunks=[item.chunk for item in retrieval_run.evidence],
+                llm_provider=llm_provider,
+                retrieval_run_id=retrieval_run.run_id,
+                trace_id=retrieval_run.trace_id,
+            )
+        packages[result.package.package_id] = result.package
+        generation_logs[result.package.package_id] = result.log
+        try:
+            rag_repository.save_generation_run(
+                GenerationRun(
+                    package_id=result.package.package_id,
+                    project_id=project_id,
+                    retrieval_run_id=retrieval_run.run_id,
+                    trace_id=retrieval_run.trace_id,
+                    provider_name=result.log.provider_name,
+                    structured_output_applied=result.log.structured_output_applied,
+                    citation_ids=result.log.citation_ids,
+                    created_at=result.log.created_at,
+                )
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return RAGGenerateResponse(
+            package=result.package,
+            retrieval_run_id=retrieval_run.run_id,
+            trace_id=retrieval_run.trace_id,
+        )
 
     @app.post("/api/projects/{project_id}/generate", response_model=LessonPackage)
     def generate(project_id: str, payload: GenerateRequest) -> LessonPackage:
-        project = projects.get(project_id)
-        if project is None:
-            raise HTTPException(status_code=404, detail="project not found")
-
+        project = _require_project(rag_repository, project_id)
         result = generate_lesson_package_with_log(
             project=project,
             retrieved_chunks=payload.retrieved_chunks,
@@ -219,6 +363,57 @@ def create_app(
     return app
 
 
+def _retrieve_for_request(
+    *,
+    project: Project,
+    query: str,
+    top_k: int,
+    include_baseline: bool,
+    vector_store: VectorStore,
+    rag_repository: RAGRepository,
+    candidate_k: int,
+    baseline_project_id: str,
+) -> RetrievalRun:
+    try:
+        return retrieve_evidence(
+            project=project,
+            query=query,
+            vector_store=vector_store,
+            repository=rag_repository,
+            top_k=top_k,
+            candidate_k=candidate_k,
+            baseline_project_id=baseline_project_id,
+            include_baseline=include_baseline,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _require_project(repository: RAGRepository, project_id: str) -> Project:
+    try:
+        project = repository.get_project(project_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+def _create_runtime_vector_store(
+    config: LessonPackConfig | None,
+    *,
+    allow_env_override: bool,
+) -> VectorStore:
+    env_provider = os.getenv("LECTUREOPS_VECTOR_STORE", "").strip()
+    if allow_env_override and env_provider:
+        return create_vector_store_from_env()
+    if config:
+        return create_vector_store_from_config(config.vector_store)
+    return create_vector_store_from_env()
+
+
 def _configure_cors(app: FastAPI) -> None:
     allow_origins = _cors_allow_origins_from_env()
     if not allow_origins:
@@ -247,10 +442,21 @@ def _env_flag(name: str, *, default: bool) -> bool:
     return value.strip().casefold() in {"1", "true", "yes", "on"}
 
 
+def _runtime_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    parsed = int(value)
+    if parsed <= 0:
+        raise ValueError(f"{name} must be greater than 0")
+    return parsed
+
+
 def _load_config_from_env() -> LessonPackConfig | None:
     config_path = os.getenv("LESSONPACK_CONFIG")
     if not config_path:
         return None
     return load_config(config_path)
+
 
 app = create_app()

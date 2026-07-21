@@ -67,7 +67,7 @@ API 서버는 다음 URL을 사용합니다.
 - 기본적으로 검색 결과 전체를 생성 입력으로 사용합니다.
 
 4. 강의 패키지 생성 화면
-- 선택된 retrieved_chunks를 POST /api/projects/{project_id}/generate에 전달
+- 운영 생성은 query를 POST /api/projects/{project_id}/rag/generate에 전달한다. 근거 chunk 선택과 검증은 서버가 수행한다.
 - 생성 중 로딩 상태 표시
 - 생성 결과를 다음 섹션으로 표시
   - 교안 lesson_plan과 ncs_alignment
@@ -133,20 +133,25 @@ Content-Type: multipart/form-data
 Form field name: file
 지원 파일: pdf, txt, md
 
-검색:
-POST /api/projects/{project_id}/retrieve
+검색 미리보기:
+POST /api/projects/{project_id}/rag/retrieve
 Request JSON:
 {
   "query": "Python 함수와 list append pop을 활용한 실습을 설계하라",
-  "top_k": 5
+  "top_k": 5,
+  "include_baseline": true
 }
 
-생성:
-POST /api/projects/{project_id}/generate
+서버 주도 RAG 생성:
+POST /api/projects/{project_id}/rag/generate
 Request JSON:
 {
-  "retrieved_chunks": [MaterialChunk 배열]
+  "query": "Python 함수와 list append pop을 활용한 실습을 설계하라",
+  "top_k": 5,
+  "include_baseline": true
 }
+
+생성 요청에는 retrieved_chunks를 보내지 않습니다. 응답의 retrieval_run_id, trace_id, package를 저장하고, 검색 미리보기에는 evidence 배열을 사용합니다.
 
 패키지 조회:
 GET /api/packages/{package_id}

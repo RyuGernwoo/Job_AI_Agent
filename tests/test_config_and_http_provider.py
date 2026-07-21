@@ -83,6 +83,10 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
         self.assertEqual(config.llm.fallback_models, [])
         self.assertEqual(config.llm.callbacks, [])
         self.assertEqual(config.vector_store.provider, "memory")
+        self.assertEqual(config.vector_store.baseline_project_id, "mvp-dataset")
+        self.assertEqual(config.vector_store.candidate_k, 20)
+        self.assertEqual(config.vector_store.embedding_provider, "hash")
+        self.assertEqual(config.vector_store.embedding_dimensions, 64)
 
     def test_load_config_reads_litellm_routing_values(self):
         with tempfile.TemporaryDirectory() as tmpdir:

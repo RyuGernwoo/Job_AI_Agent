@@ -76,6 +76,9 @@ jobs:
       - name: Check provider configuration
         run: python scripts/check_llm_provider.py --config config.example.yaml --config-only
 
+      - name: Check local RAG configuration
+        run: python scripts/check_rag_readiness.py --allow-memory
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest

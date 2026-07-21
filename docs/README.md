@@ -19,9 +19,10 @@
 
 1. [구현명세서](02_implementation-readiness/01_구현명세서.md)
 2. [데이터셋 운영 문서](../data/README_DATASET.md)
-3. [검증 프로토콜](02_implementation-readiness/03_검증_프로토콜.md)
-4. [GCE Docker CI/CD 배포 계획서](02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
-5. [체크포인트 보완 기획서](02_implementation-readiness/06_체크포인트_보완_기획서.md)
+3. [RAG 구축 및 연동 기획서](02_implementation-readiness/07_RAG_구축_연동_기획서.md)
+4. [검증 프로토콜](02_implementation-readiness/03_검증_프로토콜.md)
+5. [GCE Docker CI/CD 배포 계획서](02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
+6. [체크포인트 보완 기획서](02_implementation-readiness/06_체크포인트_보완_기획서.md)
 
 ## 문서 구조
 
@@ -45,6 +46,7 @@ docs/
     04_데이터셋_활용_전처리_계획서.md
     05_GCE_Docker_CICD_배포_계획서.md
     06_체크포인트_보완_기획서.md
+    07_RAG_구축_연동_기획서.md
   03_ui-lovable/
     01_Lovable_UI_생성_프롬프트.md
   90_reference/
@@ -53,18 +55,18 @@ docs/
 
 ## 현재 구현 기준
 
-2026-07-20 기준 문서는 다음 구현 상태를 기준으로 정리되어 있습니다.
+2026-07-21 기준 문서는 다음 구현 상태를 기준으로 정리되어 있습니다.
 
 | 영역 | 상태 |
 | --- | --- |
 | API | FastAPI MVP 구현 |
 | UI | Streamlit 데모 UI 구현 |
 | 데이터셋 | 6개 선별 원천, 43개 chunk, retrieval gold 10개, generation gold 3개 |
-| Vector Store | Supabase Postgres + pgvector 적용 |
+| Vector Store | Supabase Postgres + pgvector, 프로젝트·retrieval/generation run 영속화 migration 구현 |
 | LLMOps | LiteLLM, OpenAI primary, Gemini fallback, Langfuse tracing 적용 |
 | Export | DOCX/PPTX export 구현 |
 | 배포 | Docker, GCE, GitHub Actions CI/CD 적용 및 실배포 확인 |
-| 검증 | unittest, retrieval/generation 평가, MVP verification script 구성 |
+| 검증 | unittest, 서버 주도 RAG API 테스트, retrieval/generation 평가, readiness script 구성 |
 | 품질 보완 | 실제 DOCX/PPTX 테스트 산출물 분석 기반 보완 계획 추가 |
 
 ## 문서별 역할

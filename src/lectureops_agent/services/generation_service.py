@@ -112,6 +112,8 @@ def generate_lesson_package_with_log(
     retrieved_chunks: list[MaterialChunk],
     package_id: str | None = None,
     llm_provider: LLMProvider | None = None,
+    retrieval_run_id: str | None = None,
+    trace_id: str | None = None,
 ) -> GeneratedLessonPackageResult:
     if not retrieved_chunks:
         raise ValueError("retrieved_chunks must not be empty")
@@ -142,6 +144,8 @@ def generate_lesson_package_with_log(
         prompt=prompt,
         response_text=provider_response,
         structured_output_applied=provider_draft is not None,
+        retrieval_run_id=retrieval_run_id,
+        trace_id=trace_id,
         citation_ids=citation_ids,
         retrieved_chunk_ids=[chunk.chunk_id for chunk in retrieved_chunks],
         created_at=datetime.now(timezone.utc),

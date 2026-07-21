@@ -17,9 +17,10 @@ def main(argv: list[str] | None = None) -> int:
 
     base_url = args.base_url.rstrip("/")
     report = {"base_url": base_url, "checks": []}
-    ok = _check_health(base_url=base_url, timeout=args.timeout, report=report)
+    health_ok = _check_health(base_url=base_url, timeout=args.timeout, report=report)
+    rag_ok = _check_rag_health(base_url=base_url, timeout=args.timeout, report=report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if ok else 1
+    return 0 if health_ok and rag_ok else 1
 
 
 def _check_health(base_url: str, timeout: float, report: dict) -> bool:
@@ -43,6 +44,29 @@ def _check_health(base_url: str, timeout: float, report: dict) -> bool:
 
     check["payload"] = payload
     check["ok"] = status_code == 200 and payload.get("status") == "ok" and payload.get("service") == "lessonpack-ai"
+    return check["ok"]
+
+
+def _check_rag_health(base_url: str, timeout: float, report: dict) -> bool:
+    url = f"{base_url}/health/rag"
+    check = {"name": "rag_health", "url": url, "ok": False}
+    report["checks"].append(check)
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            status_code = response.status
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        check["error"] = str(exc)
+        return False
+
+    check["status_code"] = status_code
+    check["payload"] = payload
+    check["ok"] = (
+        status_code == 200
+        and payload.get("status") == "ok"
+        and payload.get("vector_store") == "SupabaseVectorStore"
+        and payload.get("repository") == "SupabaseRAGRepository"
+    )
     return check["ok"]
 
 

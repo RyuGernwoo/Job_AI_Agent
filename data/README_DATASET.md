@@ -145,6 +145,7 @@ python scripts\validate_mvp_dataset.py --report outputs\eval\dataset_validation_
 
 ```text
 supabase/migrations/001_lessonpack_vectors.sql
+supabase/migrations/002_rag_persistence.sql
 ```
 
 `.env`에는 다음 값이 필요합니다.
@@ -156,12 +157,20 @@ SUPABASE_SERVICE_ROLE_KEY=...
 LESSONPACK_SUPABASE_TABLE=lessonpack_chunks
 LESSONPACK_SUPABASE_MATCH_FUNCTION=match_lessonpack_chunks
 LESSONPACK_SUPABASE_MATCH_THRESHOLD=0.0
+LESSONPACK_BASELINE_PROJECT_ID=mvp-dataset
+LESSONPACK_RETRIEVAL_CANDIDATE_K=20
+LESSONPACK_RETRIEVAL_TOP_K=5
+LESSONPACK_EMBEDDING_PROVIDER=hash
+LESSONPACK_EMBEDDING_MODEL=lessonpack-hash-v1
+LESSONPACK_EMBEDDING_DIMENSIONS=64
+LESSONPACK_SUPABASE_EMBEDDING_COLUMN=embedding
 ```
 
 전처리된 chunk를 Supabase에 적재하고 검색 smoke test를 수행합니다.
 
 ```powershell
 python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-k 3
+python scripts\check_rag_readiness.py --check-schema --query "Python 함수 return" --top-k 3
 ```
 
 현재 외부 Supabase 프로젝트의 `lessonpack_chunks` 테이블에는 `mvp-dataset` 기준 43개 chunk가 적재되어 있습니다.

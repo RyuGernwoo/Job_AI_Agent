@@ -92,9 +92,59 @@ class MaterialIngestResult(BaseModel):
     chunks: list[MaterialChunk] = Field(min_length=1)
 
 
+class MaterialDocument(BaseModel):
+    document_id: str = Field(min_length=1)
+    project_id: str = Field(min_length=1)
+    source_name: str = Field(min_length=1)
+    source_type: Literal["pdf", "txt", "md"]
+    content_hash: str = Field(min_length=1)
+    chunk_count: int = Field(ge=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
 class RetrieveRequest(BaseModel):
     query: str = Field(min_length=1)
     top_k: int = Field(ge=1, le=20)
+
+
+class RAGRetrieveRequest(BaseModel):
+    query: str = Field(min_length=1)
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    include_baseline: bool = True
+
+
+class RetrievedEvidence(BaseModel):
+    chunk: MaterialChunk
+    score: float = Field(ge=0.0, le=1.0)
+    vector_similarity: float = Field(ge=-1.0, le=1.0)
+    lexical_overlap: float = Field(ge=0.0, le=1.0)
+    scope: Literal["project", "baseline"]
+
+
+class RetrievalRun(BaseModel):
+    run_id: str = Field(min_length=1)
+    trace_id: str = Field(min_length=1)
+    project_id: str = Field(min_length=1)
+    query: str = Field(min_length=1)
+    normalized_query: str = Field(min_length=1)
+    evidence: list[RetrievedEvidence] = Field(default_factory=list)
+    created_at: datetime
+
+
+class RAGRetrieveResponse(BaseModel):
+    retrieval_run_id: str = Field(min_length=1)
+    trace_id: str = Field(min_length=1)
+    project_id: str = Field(min_length=1)
+    query: str = Field(min_length=1)
+    evidence: list[RetrievedEvidence] = Field(default_factory=list)
+    created_at: datetime
+
+
+class RAGGenerateRequest(BaseModel):
+    query: str = Field(min_length=1)
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    include_baseline: bool = True
 
 
 class LectureFlowItem(BaseModel):
@@ -174,6 +224,8 @@ class GenerationLog(BaseModel):
     prompt: str = Field(min_length=1)
     response_text: str = Field(min_length=1)
     structured_output_applied: bool = False
+    retrieval_run_id: str | None = None
+    trace_id: str | None = None
     citation_ids: list[str] = Field(min_length=1)
     retrieved_chunk_ids: list[str] = Field(min_length=1)
     created_at: datetime
@@ -181,6 +233,23 @@ class GenerationLog(BaseModel):
 
 class GenerateRequest(BaseModel):
     retrieved_chunks: list[MaterialChunk] = Field(min_length=1)
+
+
+class RAGGenerateResponse(BaseModel):
+    package: LessonPackage
+    retrieval_run_id: str = Field(min_length=1)
+    trace_id: str = Field(min_length=1)
+
+
+class GenerationRun(BaseModel):
+    package_id: str = Field(min_length=1)
+    project_id: str = Field(min_length=1)
+    retrieval_run_id: str = Field(min_length=1)
+    trace_id: str = Field(min_length=1)
+    provider_name: str = Field(min_length=1)
+    structured_output_applied: bool = False
+    citation_ids: list[str] = Field(default_factory=list)
+    created_at: datetime
 
 
 class PackageEditPatch(BaseModel):

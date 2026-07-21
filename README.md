@@ -148,9 +148,10 @@ Lovable 프론트의 `VITE_API_BASE_URL`은 최종 HTTPS API 주소로 설정해
 python scripts\prepare_mvp_dataset.py
 python scripts\validate_mvp_dataset.py
 python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-k 3
+python scripts\check_rag_readiness.py --check-schema --query "Python 함수 return" --top-k 3
 ```
 
-현재 MVP 데이터셋은 6개 원천 자료에서 생성한 43개 chunk를 사용합니다. Supabase 적재 전에는 `supabase/migrations/001_lessonpack_vectors.sql`을 Supabase SQL Editor에서 먼저 실행해야 합니다.
+현재 MVP 데이터셋은 6개 원천 자료에서 생성한 43개 chunk를 사용합니다. Supabase 적재 전에는 `supabase/migrations/001_lessonpack_vectors.sql`, `002_rag_persistence.sql` 순서로 Supabase SQL Editor에서 실행해야 합니다. 운영 API는 신규 프로젝트 자료와 `mvp-dataset` 근거를 함께 검색하며, 검색 실행 ID를 생성 로그와 연결합니다.
 
 자세한 내용은 [데이터셋 운영 문서](data/README_DATASET.md)를 참고하십시오.
 
@@ -172,10 +173,14 @@ python scripts\inspect_export_quality.py --docx outputs\demo\g003_lesson_package
 | Method | Endpoint | 설명 |
 | --- | --- | --- |
 | GET | `/health` | 서비스 상태 확인 |
+| GET | `/health/rag` | RAG 저장소·검색 설정 확인 |
 | POST | `/api/projects` | 과정/차시 프로젝트 생성 |
 | POST | `/api/projects/{project_id}/materials` | 교재 업로드 및 chunk 생성 |
-| POST | `/api/projects/{project_id}/retrieve` | 근거 chunk 검색 |
-| POST | `/api/projects/{project_id}/generate` | 강의 패키지 생성 |
+| POST | `/api/projects/{project_id}/rag/retrieve` | 서버 주도 프로젝트·baseline 근거 검색 |
+| POST | `/api/projects/{project_id}/rag/generate` | 검색과 생성이 연결된 강의 패키지 생성 |
+| GET | `/api/retrieval-runs/{run_id}` | 검색 질의·점수·선택 근거 조회 |
+| POST | `/api/projects/{project_id}/retrieve` | 호환용 프로젝트 근거 검색 |
+| POST | `/api/projects/{project_id}/generate` | 호환용 chunk 직접 전달 생성 |
 | PATCH | `/api/packages/{package_id}` | 교안·실습·평가 본문 수정 |
 | PATCH | `/api/packages/{package_id}/review` | 검수 상태 변경 |
 | GET | `/api/packages/{package_id}/review-history` | 검수 이력 조회 |
@@ -189,6 +194,7 @@ python scripts\inspect_export_quality.py --docx outputs\demo\g003_lesson_package
 - [MVP 통합 기획서](docs/00_project-brief/01_MVP_통합_기획서.md)
 - [구현명세서](docs/02_implementation-readiness/01_구현명세서.md)
 - [데이터셋 운영 문서](data/README_DATASET.md)
+- [RAG 구축 및 연동 기획서](docs/02_implementation-readiness/07_RAG_구축_연동_기획서.md)
 - [검증 프로토콜](docs/02_implementation-readiness/03_검증_프로토콜.md)
 - [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
 

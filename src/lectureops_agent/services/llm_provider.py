@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import os
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from collections.abc import Iterator
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -15,6 +18,9 @@ from lectureops_agent.services.langfuse_tracing import (
     litellm_callbacks_for_runtime,
     record_langfuse_llm_span,
 )
+
+
+_LLM_TRACE_CONTEXT: ContextVar[dict[str, Any]] = ContextVar("lessonpack_llm_trace_context", default={})
 
 
 class LLMProvider(Protocol):
@@ -241,7 +247,17 @@ def _litellm_metadata() -> dict[str, Any]:
     trace_id = os.getenv("LESSONPACK_LANGFUSE_TRACE_ID", "").strip()
     if trace_id:
         metadata["trace_id"] = trace_id
+    metadata.update(_LLM_TRACE_CONTEXT.get())
     return metadata
+
+
+@contextmanager
+def llm_trace_context(metadata: dict[str, Any]) -> Iterator[None]:
+    token = _LLM_TRACE_CONTEXT.set({key: value for key, value in metadata.items() if value is not None})
+    try:
+        yield
+    finally:
+        _LLM_TRACE_CONTEXT.reset(token)
 
 
 def _wait_before_otel_flush() -> None:

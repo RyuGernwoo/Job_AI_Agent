@@ -23,6 +23,7 @@ class FakeSupabaseClient:
         self.upserts: list[dict] = []
         self.rpc_calls: list[dict] = []
         self.rpc_rows: list[dict] = []
+        self.table_rows: list[dict] = []
 
     def table(self, table_name: str):
         return FakeSupabaseTable(self, table_name)
@@ -36,14 +37,36 @@ class FakeSupabaseTable:
     def __init__(self, client: FakeSupabaseClient, table_name: str) -> None:
         self.client = client
         self.table_name = table_name
+        self.mode = ""
+        self.filters: dict[str, object] = {}
 
     def upsert(self, rows: list[dict], *, on_conflict: str):
+        self.mode = "upsert"
         self.client.upserts.append(
             {"table_name": self.table_name, "rows": rows, "on_conflict": on_conflict}
         )
         return self
 
+    def select(self, columns: str):
+        self.mode = "select"
+        return self
+
+    def eq(self, key: str, value: object):
+        self.filters[key] = value
+        return self
+
+    def limit(self, count: int):
+        self.limit_count = count
+        return self
+
     def execute(self):
+        if self.mode == "select":
+            rows = [
+                row
+                for row in self.client.table_rows
+                if all(row.get(key) == value for key, value in self.filters.items())
+            ]
+            return SimpleNamespace(data=rows[: getattr(self, "limit_count", len(rows))])
         return SimpleNamespace(data=[])
 
 
@@ -53,6 +76,17 @@ class FakeSupabaseRPC:
 
     def execute(self):
         return SimpleNamespace(data=self.rows)
+
+
+class FixedEmbeddingProvider:
+    name = "fixed:test"
+
+    def __init__(self, vector: list[float]) -> None:
+        self.vector = vector
+        self.dimensions = len(vector)
+
+    def embed(self, *, text: str) -> list[float]:
+        return list(self.vector)
 
 
 class VectorStoreTests(unittest.TestCase):
@@ -206,6 +240,66 @@ class VectorStoreTests(unittest.TestCase):
         self.assertEqual(client.rpc_calls[0]["params"]["match_threshold"], 0.2)
         self.assertEqual([chunk.chunk_id for chunk in retrieved], ["doc001-p000-c001"])
         self.assertEqual(retrieved[0].metadata["license"], "PSF License")
+
+    def test_in_memory_scoped_query_prioritizes_project_evidence(self):
+        store = InMemoryVectorStore()
+        project_chunk = MaterialChunk(
+            chunk_id="project-c001",
+            project_id="project-001",
+            document_id="doc001",
+            source_name="instructor.md",
+            source_type="md",
+            page=None,
+            text="Functions receive input and return output.",
+            metadata={},
+        )
+        baseline_chunk = project_chunk.model_copy(
+            update={
+                "chunk_id": "baseline-c001",
+                "project_id": "mvp-dataset",
+                "source_name": "baseline.md",
+            }
+        )
+        store.upsert(project_id="project-001", chunks=[project_chunk])
+        store.upsert(project_id="mvp-dataset", chunks=[baseline_chunk])
+
+        results = store.query_scoped(
+            project_id="project-001",
+            baseline_project_id="mvp-dataset",
+            query="function return output",
+            top_k=2,
+            candidate_k=5,
+            include_baseline=True,
+        )
+
+        self.assertEqual([item.scope for item in results], ["project", "baseline"])
+        self.assertGreater(results[0].score, results[1].score)
+
+    def test_supabase_query_falls_back_to_exact_project_scan_when_rpc_is_empty(self):
+        client = FakeSupabaseClient()
+        client.table_rows = [
+            {
+                "chunk_id": "baseline-c001",
+                "project_id": "mvp-dataset",
+                "document_id": "baseline-doc",
+                "source_name": "baseline.md",
+                "source_type": "md",
+                "page": None,
+                "content": "Functions receive input and return output.",
+                "metadata": {"license": "PSF License"},
+                "embedding": [0.0] * 63 + [1.0],
+            }
+        ]
+        store = SupabaseVectorStore(
+            url="https://example.supabase.co",
+            key="test-key",
+            client=client,
+            embedding_provider=FixedEmbeddingProvider([0.0] * 63 + [1.0]),
+        )
+
+        retrieved = store.query(project_id="mvp-dataset", query="function return", top_k=3)
+
+        self.assertEqual([chunk.chunk_id for chunk in retrieved], ["baseline-c001"])
 
 
 if __name__ == "__main__":

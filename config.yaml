@@ -31,3 +31,9 @@ vector_store:
   table_name: lessonpack_chunks
   match_function: match_lessonpack_chunks
   match_threshold: 0.0
+  baseline_project_id: mvp-dataset
+  candidate_k: 20
+  embedding_provider: hash
+  embedding_model: lessonpack-hash-v1
+  embedding_dimensions: 64
+  embedding_column: embedding
