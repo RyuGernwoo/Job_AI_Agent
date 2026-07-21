@@ -2,6 +2,7 @@
 import sys
 import unittest
 from pathlib import Path
+from urllib.parse import unquote
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -70,6 +71,9 @@ class ExportApiTests(unittest.TestCase):
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
         self.assertTrue(exported.content.startswith(b"PK"))
+        content_disposition = unquote(exported.headers["content-disposition"])
+        self.assertIn("Python_functions_and_prompt_automation_practice_교안.docx", content_disposition)
+        self.assertNotIn(package_id, content_disposition)
 
         exported_pptx = client.get(f"/api/packages/{package_id}/export.pptx")
         self.assertEqual(exported_pptx.status_code, 200)
@@ -78,6 +82,9 @@ class ExportApiTests(unittest.TestCase):
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         )
         self.assertTrue(exported_pptx.content.startswith(b"PK"))
+        content_disposition = unquote(exported_pptx.headers["content-disposition"])
+        self.assertIn("Python_functions_and_prompt_automation_practice_강의자료.pptx", content_disposition)
+        self.assertNotIn(package_id, content_disposition)
 
 
 if __name__ == "__main__":

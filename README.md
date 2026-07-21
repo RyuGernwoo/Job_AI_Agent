@@ -47,12 +47,13 @@ LessonPack AI는 직업훈련 강의 준비에 필요한 산출물을 한 번에
 
 ### 현재 구현 상태
 
-2026-07-20 기준 MVP의 핵심 end-to-end 흐름은 구현되어 있습니다.
+2026-07-21 기준 MVP의 핵심 end-to-end 흐름은 구현되어 있습니다.
 
 - FastAPI API 서버
 - Streamlit 데모 UI
 - 프로젝트 생성, 자료 업로드, chunking, 검색, 생성, 검수, export API
-- NCS 연계, 상세 근거 출처, 검수 이력이 포함된 DOCX/PPTX 산출물 생성
+- NCS 연계, 검수 이력, 마지막 단원에 통합된 근거 출처가 포함된 DOCX/PPTX 산출물 생성
+- 수업 제목 기반의 짧은 다운로드 파일명과 구조화 LLM JSON 검증·fallback 처리
 - LiteLLM 기반 LLM provider
 - OpenAI primary 모델과 Gemini fallback 모델 설정
 - Langfuse tracing 연동

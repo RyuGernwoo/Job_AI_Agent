@@ -11,7 +11,11 @@ if str(SRC_ROOT) not in sys.path:
 import streamlit as st
 
 from lectureops_agent.models.schemas import NCSUnit, PackageStatus, ProjectCreate
-from lectureops_agent.services.export_service import export_lesson_package_docx, export_lesson_package_pptx
+from lectureops_agent.services.export_service import (
+    build_export_filename,
+    export_lesson_package_docx,
+    export_lesson_package_pptx,
+)
 from lectureops_agent.services.parser_service import decode_text_material
 from lectureops_agent.ui.workflow import (
     approve_package,
@@ -185,21 +189,23 @@ def _render_result_panel() -> None:
 
         if st.session_state.package.status == PackageStatus.APPROVED:
             export_dir = Path(tempfile.gettempdir()) / "lectureops_agent_streamlit"
-            docx_path = export_dir / f"{package.package_id}.docx"
-            pptx_path = export_dir / f"{package.package_id}.pptx"
+            docx_name = build_export_filename(package, "docx")
+            pptx_name = build_export_filename(package, "pptx")
+            docx_path = export_dir / docx_name
+            pptx_path = export_dir / pptx_name
             export_lesson_package_docx(package=st.session_state.package, output_path=docx_path)
             export_lesson_package_pptx(package=st.session_state.package, output_path=pptx_path)
             st.download_button(
                 "DOCX 다운로드",
                 data=docx_path.read_bytes(),
-                file_name=f"{package.package_id}.docx",
+                file_name=docx_name,
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 use_container_width=True,
             )
             st.download_button(
                 "PPTX 다운로드",
                 data=pptx_path.read_bytes(),
-                file_name=f"{package.package_id}.pptx",
+                file_name=pptx_name,
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 use_container_width=True,
             )

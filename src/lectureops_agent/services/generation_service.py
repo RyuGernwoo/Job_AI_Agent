@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lectureops_agent.models.schemas import (
     Assessment,
@@ -27,6 +30,65 @@ from lectureops_agent.services.llm_provider import LLMProvider, MockLLMProvider
 class GeneratedLessonPackageResult:
     package: LessonPackage
     log: GenerationLog
+
+
+class _ProviderLectureFlowItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    section: str = Field(min_length=1)
+    duration_min: int = Field(ge=1)
+    content: str = Field(min_length=1)
+    citation_ids: list[str] = Field(min_length=1)
+
+
+class _ProviderLessonPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lecture_flow: list[_ProviderLectureFlowItem] = Field(min_length=3, max_length=3)
+
+
+class _ProviderPractice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenario: str = Field(min_length=1)
+    steps: list[str] = Field(min_length=3, max_length=5)
+    submission: str = Field(min_length=1)
+    rubric: list[str] = Field(min_length=3, max_length=5)
+    citation_ids: list[str] = Field(min_length=1)
+
+
+class _ProviderMultipleChoiceQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1)
+    options: list[str] = Field(min_length=4, max_length=4)
+    answer_index: int = Field(ge=0, le=3)
+    explanation: str = Field(min_length=1)
+    citation_ids: list[str] = Field(min_length=1)
+
+
+class _ProviderPerformanceTask(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    rubric: list[str] = Field(min_length=3, max_length=5)
+    citation_ids: list[str] = Field(min_length=1)
+
+
+class _ProviderAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    multiple_choice: list[_ProviderMultipleChoiceQuestion] = Field(min_length=5, max_length=5)
+    performance_task: _ProviderPerformanceTask
+
+
+class _ProviderPackageDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lesson_plan: _ProviderLessonPlan
+    practice: _ProviderPractice
+    assessment: _ProviderAssessment
 
 
 def generate_lesson_package(
@@ -61,13 +123,17 @@ def generate_lesson_package_with_log(
         raise ValueError("llm provider returned empty response")
 
     package_id = package_id or str(uuid4())
+    provider_draft = _parse_provider_draft(
+        provider_response,
+        allowed_citation_ids={chunk.chunk_id for chunk in retrieved_chunks},
+    )
     package = _build_package(
         project=project,
         retrieved_chunks=retrieved_chunks,
         package_id=package_id,
-        provider_response=provider_response,
+        provider_draft=provider_draft,
     )
-    citation_ids = _citation_ids(retrieved_chunks)
+    citation_ids = _package_citation_ids(package)
     log = GenerationLog(
         log_id=str(uuid4()),
         package_id=package.package_id,
@@ -75,6 +141,7 @@ def generate_lesson_package_with_log(
         provider_name=provider.name,
         prompt=prompt,
         response_text=provider_response,
+        structured_output_applied=provider_draft is not None,
         citation_ids=citation_ids,
         retrieved_chunk_ids=[chunk.chunk_id for chunk in retrieved_chunks],
         created_at=datetime.now(timezone.utc),
@@ -88,10 +155,23 @@ def build_generation_prompt(*, project: Project, retrieved_chunks: list[Material
         f"- {unit.unit_code} {unit.unit_name}: {', '.join(unit.elements) if unit.elements else '세부 요소 미기재'}"
         for unit in project.ncs_units
     )
-    evidence_text = "\n".join(
-        f"[{chunk.chunk_id}] {chunk.source_name} / {chunk.metadata.get('section', 'section unknown')}: {chunk.text}"
-        for chunk in retrieved_chunks
-    )
+    evidence_lines: list[str] = []
+    for chunk in retrieved_chunks:
+        metadata = " | ".join(
+            value
+            for value in [
+                _optional_metadata(chunk, "source_url"),
+                _optional_metadata(chunk, "license"),
+            ]
+            if value
+        )
+        metadata_suffix = f" | {metadata}" if metadata else ""
+        evidence_lines.append(
+            f"[{chunk.chunk_id}] {chunk.source_name} / "
+            f"{chunk.metadata.get('section', 'section unknown')}{metadata_suffix}: "
+            f"{_truncate_words(chunk.text, max_chars=1200)}"
+        )
+    evidence_text = "\n".join(evidence_lines)
     return (
         "LessonPack AI generation request\n"
         f"Course: {project.course_title}\n"
@@ -103,10 +183,22 @@ def build_generation_prompt(*, project: Project, retrieved_chunks: list[Material
         f"{ncs_text or '- NCS unit not provided'}\n"
         "Retrieved evidence chunks:\n"
         f"{evidence_text}\n"
-        "Return a JSON object only when possible. The object should contain lesson_plan, practice, "
-        "assessment, citation_ids, and ncs_alignment. Do not introduce proper nouns, numbers, laws, "
-        "or certifications that are not present in the evidence chunks. Every core item must stay "
-        "traceable to citation IDs and require instructor review."
+        "Return one JSON object only, without Markdown fences or explanatory text. Use this exact schema:\n"
+        '{"lesson_plan":{"lecture_flow":[{"section":"도입","duration_min":15,'
+        '"content":"...","citation_ids":["chunk-id"]},{"section":"전개","duration_min":75,'
+        '"content":"...","citation_ids":["chunk-id"]},{"section":"정리","duration_min":30,'
+        '"content":"...","citation_ids":["chunk-id"]}]},'
+        '"practice":{"scenario":"...","steps":["...","...","..."],"submission":"...",'
+        '"rubric":["...","...","..."],"citation_ids":["chunk-id"]},'
+        '"assessment":{"multiple_choice":[{"question":"...","options":["...","...","...","..."],'
+        '"answer_index":0,"explanation":"...","citation_ids":["chunk-id"]}],'
+        '"performance_task":{"title":"...","description":"...","rubric":["...","...","..."],'
+        '"citation_ids":["chunk-id"]}}}\n'
+        "Requirements: lecture_flow must contain exactly 3 items and multiple_choice exactly 5 items. "
+        "Write all learner-facing text in natural Korean. Do not repeat labels such as '수행 절차:' or '제출물:' "
+        "inside values. Use only citation IDs shown above, and attach each citation only to content directly "
+        "supported by that chunk. Do not introduce proper nouns, numbers, laws, or certifications absent from "
+        "the evidence. Keep the practice and assessments aligned with the stated learning objectives and NCS units."
     )
 
 
@@ -115,9 +207,8 @@ def _build_package(
     project: Project,
     retrieved_chunks: list[MaterialChunk],
     package_id: str,
-    provider_response: str,
+    provider_draft: _ProviderPackageDraft | None,
 ) -> LessonPackage:
-    citation_ids = _citation_ids(retrieved_chunks)
     intro_citations = _citation_ids_for(retrieved_chunks, preferred_index=0, limit=1)
     development_citations = _citation_ids_for(retrieved_chunks, preferred_index=1, limit=2)
     closing_citations = _citation_ids_for(retrieved_chunks, preferred_index=2, limit=1)
@@ -125,8 +216,7 @@ def _build_package(
     alignments = _ncs_alignments(project)
     primary_alignment = alignments[:1]
     alignment_text = _alignment_summary(primary_alignment)
-    objective_text = " / ".join(project.learning_objectives)
-    evidence_summary = _evidence_summary(retrieved_chunks)
+    primary_objective = project.learning_objectives[0]
     practice_keywords = _practice_keywords(project=project, retrieved_chunks=retrieved_chunks)
     practice_keyword_text = ", ".join(practice_keywords)
 
@@ -138,8 +228,8 @@ def _build_package(
                 section="도입",
                 duration_min=15,
                 content=(
-                    f"{project.course_title} 과정 맥락에서 오늘 차시 목표를 안내한다. "
-                    f"학습자는 {objective_text}를 수행해야 하며, NCS 연계는 {alignment_text}이다."
+                    f"{project.course_title} 과정에서 이번 차시의 학습목표를 안내한다. "
+                    f"학습자는 제시된 목표를 확인하고, 차시 활동을 {alignment_text}의 수행 기준과 연결한다."
                 ),
                 citation_ids=intro_citations,
                 ncs_alignment=primary_alignment,
@@ -148,8 +238,8 @@ def _build_package(
                 section="전개",
                 duration_min=75,
                 content=(
-                    f"검색 근거에서 확인된 핵심 개념을 예제와 함께 설명한다. 핵심 근거: {evidence_summary}. "
-                    f"강사는 설명 중 {practice_keyword_text}를 차례로 연결한다."
+                    "검색 근거에서 확인된 핵심 개념을 예제와 함께 설명한다. "
+                    f"강사는 다음 항목을 중심으로 시범을 보이고 학습자가 직접 실행 결과를 확인하도록 한다: {practice_keyword_text}."
                 ),
                 citation_ids=development_citations,
                 ncs_alignment=alignments,
@@ -166,19 +256,19 @@ def _build_package(
 
     practice = Practice(
         scenario=(
-            f"실습 시나리오: {project.lesson_title} 내용을 활용해 직업훈련 수업용 자동화 예제를 만든다. "
-            f"핵심 실습 요소는 {practice_keyword_text}이다."
+            f"{project.lesson_title}의 핵심 개념을 적용해 직업훈련 수업용 결과물을 완성한다. "
+            f"실습에서는 다음 항목을 확인한다: {practice_keyword_text}."
         ),
         steps=[
-            f"수행 절차: 근거 자료에서 {practice_keyword_text}와 관련된 개념을 3개 추출한다.",
-            "수행 절차: 추출한 개념을 함수, 입력값, 반환값 또는 자료구조 처리 코드로 구현한다.",
-            "수행 절차: 실행 결과를 캡처하고 학습목표 및 NCS 수행 기준과 연결해 설명한다.",
+            f"근거 자료에서 다음 항목과 관련된 핵심 개념을 3개 선정한다: {practice_keyword_text}.",
+            "선정한 개념을 적용한 결과물을 작성하고 정상 동작 여부를 확인한다.",
+            "실행 결과를 기록하고 학습목표 및 NCS 수행 기준과 연결해 설명한다.",
         ],
-        submission=f"제출물: 실습 코드와 실행 결과, 핵심 개념 설명 3문장. 반영 요소: {practice_keyword_text}.",
+        submission=f"실습 결과물, 실행 결과, 핵심 개념 설명 3문장. 반영 요소: {practice_keyword_text}.",
         rubric=[
-            f"평가 기준: 근거 자료와 NCS 수행 기준을 정확히 반영했다. 확인 요소: {practice_keyword_text}.",
-            "평가 기준: 실습 절차가 재현 가능하다.",
-            "평가 기준: 학습 목표와 제출물이 연결된다.",
+            f"근거 자료와 NCS 수행 기준을 정확히 반영했다. 확인 요소: {practice_keyword_text}.",
+            "실습 절차와 실행 결과를 다른 학습자가 재현할 수 있다.",
+            "학습목표와 제출물이 직접 연결된다.",
         ],
         citation_ids=practice_citations,
         ncs_alignment=alignments,
@@ -191,7 +281,7 @@ def _build_package(
     assessment = Assessment(
         multiple_choice=[
             MultipleChoiceQuestion(
-                question=f"{project.lesson_title} 실습에서 학습목표 달성 여부를 가장 잘 보여주는 증거는 무엇인가?",
+                question=f"{project.lesson_title}에서 학습목표 달성 여부를 가장 잘 보여주는 증거는 무엇인가?",
                 options=[
                     "실습 코드, 실행 결과, 개념 설명이 함께 제출된 결과",
                     "근거 없이 복사한 긴 설명문",
@@ -204,7 +294,7 @@ def _build_package(
                 ncs_alignment=primary_alignment,
             ),
             MultipleChoiceQuestion(
-                question=f"NCS {primary_alignment[0].unit_name if primary_alignment else '능력단위'}와 가장 직접적으로 연결되는 활동은 무엇인가?",
+                question=f"NCS 능력단위 '{primary_alignment[0].unit_name if primary_alignment else '미지정'}'과 가장 직접적으로 연결되는 활동은 무엇인가?",
                 options=[
                     "근거 자료의 개념을 활용해 재현 가능한 실습 절차를 작성한다.",
                     "수업과 무관한 고급 이론만 암기한다.",
@@ -230,15 +320,15 @@ def _build_package(
                 ncs_alignment=alignments,
             ),
             MultipleChoiceQuestion(
-                question="근거 자료 기반 수업 초안을 검수할 때 가장 먼저 확인해야 할 사항은 무엇인가?",
+                question=f"학습목표 '{primary_objective}'의 달성 여부를 확인하는 가장 적절한 방법은 무엇인가?",
                 options=[
-                    "핵심 설명과 평가 문항이 citation으로 추적되는지 확인한다.",
-                    "citation을 모두 삭제해 문서를 짧게 만든다.",
-                    "근거와 다른 수치를 임의로 추가한다.",
-                    "검수 없이 바로 배포한다.",
+                    "학습자가 만든 결과물과 설명을 목표의 수행 동사에 따라 확인한다.",
+                    "학습목표와 무관하게 문서 분량만 확인한다.",
+                    "실행 결과를 확인하지 않고 제출 여부만 기록한다.",
+                    "모든 학습자에게 동일한 점수를 부여한다.",
                 ],
                 answer_index=0,
-                explanation="근거 추적은 RAG 기반 생성물의 할루시네이션을 줄이고 강사 검수를 돕는다.",
+                explanation="평가는 학습목표에 제시된 행동을 학습자가 실제로 수행했는지 확인해야 한다.",
                 citation_ids=rotated_citations[3],
                 ncs_alignment=primary_alignment,
             ),
@@ -258,7 +348,7 @@ def _build_package(
         ],
         performance_task=PerformanceTask(
             title=f"{project.lesson_title} 수행평가",
-            description="함수 또는 자료구조를 활용해 간단한 자동화 코드를 작성하고, 실행 결과와 근거 개념 설명을 함께 제출한다.",
+            description=f"{project.lesson_title}의 핵심 개념을 적용한 결과물을 작성하고, 실행 결과와 근거 개념 설명을 함께 제출한다.",
             rubric=[
                 "근거 자료의 핵심 개념을 코드와 설명에 정확히 반영했다.",
                 "실습 절차와 실행 결과가 재현 가능하다.",
@@ -269,7 +359,7 @@ def _build_package(
         ),
     )
 
-    return LessonPackage(
+    fallback_package = LessonPackage(
         package_id=package_id,
         project_id=project.project_id,
         status=PackageStatus.DRAFT,
@@ -279,10 +369,128 @@ def _build_package(
         evidence_sources=_citation_details(retrieved_chunks),
         template_metadata=StandardTemplateMetadata(lesson_duration_min=120),
     )
+    if provider_draft is None:
+        return fallback_package
+    return _package_from_provider_draft(
+        project=project,
+        retrieved_chunks=retrieved_chunks,
+        package_id=package_id,
+        provider_draft=provider_draft,
+    )
 
 
-def _citation_ids(chunks: list[MaterialChunk], *, limit: int = 3) -> list[str]:
-    return [chunk.chunk_id for chunk in chunks[: max(1, limit)]]
+def _parse_provider_draft(
+    response_text: str,
+    *,
+    allowed_citation_ids: set[str],
+) -> _ProviderPackageDraft | None:
+    start = response_text.find("{")
+    end = response_text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        payload = json.loads(response_text[start : end + 1])
+        draft = _ProviderPackageDraft.model_validate(payload)
+    except (json.JSONDecodeError, ValidationError, TypeError):
+        return None
+
+    if [flow.section.strip() for flow in draft.lesson_plan.lecture_flow] != ["도입", "전개", "정리"]:
+        return None
+    citation_ids = {
+        citation_id
+        for group in _provider_citation_groups(draft)
+        for citation_id in group
+    }
+    if not citation_ids or not citation_ids.issubset(allowed_citation_ids):
+        return None
+    return draft
+
+
+def _provider_citation_groups(draft: _ProviderPackageDraft) -> list[list[str]]:
+    groups = [flow.citation_ids for flow in draft.lesson_plan.lecture_flow]
+    groups.append(draft.practice.citation_ids)
+    groups.extend(question.citation_ids for question in draft.assessment.multiple_choice)
+    groups.append(draft.assessment.performance_task.citation_ids)
+    return groups
+
+
+def _package_from_provider_draft(
+    *,
+    project: Project,
+    retrieved_chunks: list[MaterialChunk],
+    package_id: str,
+    provider_draft: _ProviderPackageDraft,
+) -> LessonPackage:
+    alignments = _ncs_alignments(project)
+    primary_alignment = alignments[:1]
+    lesson_plan = LessonPlan(
+        title=project.lesson_title,
+        learning_objectives=project.learning_objectives,
+        lecture_flow=[
+            LectureFlowItem(
+                section=flow.section,
+                duration_min=flow.duration_min,
+                content=flow.content,
+                citation_ids=flow.citation_ids,
+                ncs_alignment=primary_alignment if index in {0, 2} else alignments,
+            )
+            for index, flow in enumerate(provider_draft.lesson_plan.lecture_flow)
+        ],
+    )
+    practice = Practice(
+        scenario=provider_draft.practice.scenario,
+        steps=provider_draft.practice.steps,
+        submission=provider_draft.practice.submission,
+        rubric=provider_draft.practice.rubric,
+        citation_ids=provider_draft.practice.citation_ids,
+        ncs_alignment=alignments,
+    )
+    assessment = Assessment(
+        multiple_choice=[
+            MultipleChoiceQuestion(
+                question=question.question,
+                options=question.options,
+                answer_index=question.answer_index,
+                explanation=question.explanation,
+                citation_ids=question.citation_ids,
+                ncs_alignment=alignments,
+            )
+            for question in provider_draft.assessment.multiple_choice
+        ],
+        performance_task=PerformanceTask(
+            title=provider_draft.assessment.performance_task.title,
+            description=provider_draft.assessment.performance_task.description,
+            rubric=provider_draft.assessment.performance_task.rubric,
+            citation_ids=provider_draft.assessment.performance_task.citation_ids,
+            ncs_alignment=alignments,
+        ),
+    )
+    lesson_duration = sum(flow.duration_min or 0 for flow in lesson_plan.lecture_flow)
+    return LessonPackage(
+        package_id=package_id,
+        project_id=project.project_id,
+        status=PackageStatus.DRAFT,
+        lesson_plan=lesson_plan,
+        practice=practice,
+        assessment=assessment,
+        evidence_sources=_citation_details(retrieved_chunks),
+        template_metadata=StandardTemplateMetadata(lesson_duration_min=lesson_duration or None),
+    )
+
+
+def _package_citation_ids(package: LessonPackage) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    groups = [flow.citation_ids for flow in package.lesson_plan.lecture_flow]
+    groups.append(package.practice.citation_ids)
+    groups.extend(question.citation_ids for question in package.assessment.multiple_choice)
+    groups.append(package.assessment.performance_task.citation_ids)
+    for group in groups:
+        for citation_id in group:
+            if citation_id not in seen:
+                seen.add(citation_id)
+                ordered.append(citation_id)
+    return ordered
 
 
 def _citation_ids_for(chunks: list[MaterialChunk], *, preferred_index: int, limit: int) -> list[str]:
@@ -341,14 +549,6 @@ def _alignment_summary(alignments: list[NCSAlignment]) -> str:
     if not alignments:
         return "강사 검수 단계에서 NCS 능력단위 추가 확인 필요"
     return "; ".join(f"{item.unit_code} {item.unit_name}" for item in alignments)
-
-
-def _evidence_summary(chunks: list[MaterialChunk]) -> str:
-    summaries: list[str] = []
-    for chunk in chunks[:3]:
-        section = chunk.metadata.get("section") or chunk.source_name
-        summaries.append(f"{chunk.chunk_id} {section}: {_truncate_words(chunk.text, max_chars=90)}")
-    return " / ".join(summaries)
 
 
 def _practice_keywords(*, project: Project, retrieved_chunks: list[MaterialChunk]) -> list[str]:

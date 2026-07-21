@@ -22,7 +22,11 @@ from lectureops_agent.models.schemas import (
     ReviewPatch,
 )
 from lectureops_agent.services.chunk_service import chunk_text
-from lectureops_agent.services.export_service import export_lesson_package_docx, export_lesson_package_pptx
+from lectureops_agent.services.export_service import (
+    build_export_filename,
+    export_lesson_package_docx,
+    export_lesson_package_pptx,
+)
 from lectureops_agent.services.generation_service import generate_lesson_package_with_log
 from lectureops_agent.services.llm_provider import LLMProvider, create_llm_provider_from_config, create_llm_provider_from_env
 from lectureops_agent.services.parser_service import decode_text_material
@@ -193,7 +197,7 @@ def create_app(
         return FileResponse(
             path=output_path,
             media_type=DOCX_MEDIA_TYPE,
-            filename=f"{package_id}.docx",
+            filename=build_export_filename(package, "docx"),
         )
 
     @app.get("/api/packages/{package_id}/export.pptx")
@@ -209,7 +213,7 @@ def create_app(
         return FileResponse(
             path=output_path,
             media_type=PPTX_MEDIA_TYPE,
-            filename=f"{package_id}.pptx",
+            filename=build_export_filename(package, "pptx"),
         )
 
     return app

@@ -173,6 +173,7 @@ class GenerationLog(BaseModel):
     provider_name: str = Field(min_length=1)
     prompt: str = Field(min_length=1)
     response_text: str = Field(min_length=1)
+    structured_output_applied: bool = False
     citation_ids: list[str] = Field(min_length=1)
     retrieved_chunk_ids: list[str] = Field(min_length=1)
     created_at: datetime
