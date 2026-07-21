@@ -194,6 +194,7 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
         self.assertEqual(provider.model, "gpt-4o-mini")
         self.assertEqual(provider.fallback_models, ["gemini/gemini-2.0-flash"])
         self.assertEqual(provider.callbacks, ["langfuse_otel"])
+        self.assertEqual(provider.schema_retries, 1)
 
     def test_http_chat_provider_posts_prompt_and_returns_message_content(self):
         server = HTTPServer(("127.0.0.1", 0), ChatCompletionHandler)

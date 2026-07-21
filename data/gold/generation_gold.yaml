@@ -24,6 +24,16 @@ cases:
       mcq_count: 5
       performance_task_count: 1
     citation_required: true
+    ncs_alignment_required: true
+    min_ncs_alignment_coverage: 0.8
+    source_metadata_required: true
+    min_source_metadata_coverage: 0.9
+    min_unique_citation_chunks: 2
+    min_citation_source_resolution: 1.0
+    min_assessment_quality: 1.0
+    expected_duration_min: 120
+    min_duration_alignment: 0.9
+    min_mcq_uniqueness: 1.0
 - case_id: g002
   input:
     curriculum_id: curr-python-prompt-automation
@@ -44,6 +54,16 @@ cases:
       mcq_count: 5
       performance_task_count: 1
     citation_required: true
+    ncs_alignment_required: true
+    min_ncs_alignment_coverage: 0.8
+    source_metadata_required: true
+    min_source_metadata_coverage: 0.9
+    min_unique_citation_chunks: 2
+    min_citation_source_resolution: 1.0
+    min_assessment_quality: 1.0
+    expected_duration_min: 120
+    min_duration_alignment: 0.9
+    min_mcq_uniqueness: 1.0
 - case_id: g003
   input:
     curriculum_id: curr-python-prompt-automation
@@ -64,3 +84,13 @@ cases:
       mcq_count: 5
       performance_task_count: 1
     citation_required: true
+    ncs_alignment_required: true
+    min_ncs_alignment_coverage: 0.8
+    source_metadata_required: true
+    min_source_metadata_coverage: 0.9
+    min_unique_citation_chunks: 2
+    min_citation_source_resolution: 1.0
+    min_assessment_quality: 1.0
+    expected_duration_min: 120
+    min_duration_alignment: 0.9
+    min_mcq_uniqueness: 1.0

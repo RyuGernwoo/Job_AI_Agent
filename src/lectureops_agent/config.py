@@ -12,6 +12,7 @@ class LLMConfig(BaseModel):
     base_url: str | None = None
     api_key_env: str | None = None
     timeout_seconds: int | float | None = Field(default=None, gt=0)
+    schema_retries: int = Field(default=1, ge=0, le=3)
     fallback_models: list[str] = Field(default_factory=list)
     callbacks: list[str] = Field(default_factory=list)
     success_callbacks: list[str] = Field(default_factory=list)

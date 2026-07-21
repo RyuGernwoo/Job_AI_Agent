@@ -49,6 +49,15 @@ def evaluate_lesson_package(
     ncs_alignment_coverage = _ncs_alignment_coverage(package)
     source_metadata_coverage = _source_metadata_coverage(package)
     citation_diversity = _citation_diversity(package)
+    citation_source_resolution = _citation_source_resolution(package)
+    assessment_quality = _assessment_quality(package)
+    duration_alignment = _duration_alignment(
+        package,
+        expected_duration_min=_int_or_zero(
+            expected.get("expected_duration_min", package.template_metadata.lesson_duration_min)
+        ),
+    )
+    mcq_uniqueness = _mcq_uniqueness(package)
 
     checks = {
         "lesson_sections": not missing_lesson_sections,
@@ -66,6 +75,13 @@ def evaluate_lesson_package(
             else True
         ),
         "citation_diversity": citation_diversity["unique_chunk_count"] >= int(expected.get("min_unique_citation_chunks", 1)),
+        "citation_source_resolution": (
+            citation_source_resolution["coverage"]
+            >= float(expected.get("min_citation_source_resolution", 1.0))
+        ),
+        "assessment_quality": assessment_quality["coverage"] >= float(expected.get("min_assessment_quality", 1.0)),
+        "duration_alignment": duration_alignment["score"] >= float(expected.get("min_duration_alignment", 0.9)),
+        "mcq_uniqueness": mcq_uniqueness["coverage"] >= float(expected.get("min_mcq_uniqueness", 1.0)),
     }
     passed_checks = sum(1 for value in checks.values() if value)
     total_checks = len(checks)
@@ -86,6 +102,10 @@ def evaluate_lesson_package(
         "ncs_alignment_coverage": ncs_alignment_coverage,
         "source_metadata_coverage": source_metadata_coverage,
         "citation_diversity": citation_diversity,
+        "citation_source_resolution": citation_source_resolution,
+        "assessment_quality": assessment_quality,
+        "duration_alignment": duration_alignment,
+        "mcq_uniqueness": mcq_uniqueness,
         "missing_citation_items": missing_citation_items,
     }
 
@@ -197,6 +217,90 @@ def _citation_diversity(package: LessonPackage) -> dict[str, int]:
         "unique_chunk_count": len(citation_ids),
         "unique_source_count": len(source_names),
     }
+
+
+def _citation_source_resolution(package: LessonPackage) -> dict[str, int | float | list[str]]:
+    cited_ids = _all_citation_ids(package)
+    evidence_ids = {detail.chunk_id for detail in package.evidence_sources}
+    missing_ids = sorted(cited_ids - evidence_ids)
+    resolved = len(cited_ids) - len(missing_ids)
+    return {
+        "resolved_citations": resolved,
+        "total_citations": len(cited_ids),
+        "missing_chunk_ids": missing_ids,
+        "coverage": round(resolved / len(cited_ids), 4) if cited_ids else 0.0,
+    }
+
+
+def _assessment_quality(package: LessonPackage) -> dict[str, int | float | list[str]]:
+    checks: list[tuple[str, bool]] = []
+    for index, question in enumerate(package.assessment.multiple_choice, start=1):
+        normalized_options = [option.strip().casefold() for option in question.options]
+        checks.extend(
+            [
+                (f"mcq.{index}.question", bool(question.question.strip())),
+                (f"mcq.{index}.four_options", len(question.options) == 4),
+                (f"mcq.{index}.unique_options", len(set(normalized_options)) == 4),
+                (f"mcq.{index}.answer_index", 0 <= question.answer_index < len(question.options)),
+                (f"mcq.{index}.explanation", bool(question.explanation.strip())),
+            ]
+        )
+
+    task = package.assessment.performance_task
+    checks.extend(
+        [
+            ("performance_task.title", bool(task.title.strip())),
+            ("performance_task.description", bool(task.description.strip())),
+            ("performance_task.rubric", len(task.rubric) >= 3),
+        ]
+    )
+    failed = [name for name, passed in checks if not passed]
+    passed_count = len(checks) - len(failed)
+    return {
+        "passed_checks": passed_count,
+        "total_checks": len(checks),
+        "failed_checks": failed,
+        "coverage": round(passed_count / len(checks), 4) if checks else 0.0,
+    }
+
+
+def _duration_alignment(package: LessonPackage, *, expected_duration_min: int) -> dict[str, int | float]:
+    durations = [item.duration_min for item in package.lesson_plan.lecture_flow]
+    populated = sum(1 for duration in durations if duration is not None)
+    actual_duration = sum(duration or 0 for duration in durations)
+    completeness = round(populated / len(durations), 4) if durations else 0.0
+    if expected_duration_min <= 0:
+        alignment = 1.0 if actual_duration > 0 else 0.0
+    else:
+        deviation = abs(actual_duration - expected_duration_min) / expected_duration_min
+        alignment = max(0.0, 1.0 - deviation)
+    return {
+        "expected_duration_min": expected_duration_min,
+        "actual_duration_min": actual_duration,
+        "duration_field_coverage": completeness,
+        "score": round(alignment * completeness, 4),
+    }
+
+
+def _mcq_uniqueness(package: LessonPackage) -> dict[str, int | float]:
+    questions = [question.question.strip().casefold() for question in package.assessment.multiple_choice]
+    unique_count = len(set(questions))
+    return {
+        "unique_questions": unique_count,
+        "total_questions": len(questions),
+        "coverage": round(unique_count / len(questions), 4) if questions else 0.0,
+    }
+
+
+def _all_citation_ids(package: LessonPackage) -> set[str]:
+    citation_ids: set[str] = set()
+    for item in package.lesson_plan.lecture_flow:
+        citation_ids.update(item.citation_ids)
+    citation_ids.update(package.practice.citation_ids)
+    for question in package.assessment.multiple_choice:
+        citation_ids.update(question.citation_ids)
+    citation_ids.update(package.assessment.performance_task.citation_ids)
+    return citation_ids
 
 
 def _int_or_zero(value: Any) -> int:

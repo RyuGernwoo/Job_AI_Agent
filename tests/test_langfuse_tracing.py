@@ -84,6 +84,8 @@ class LangfuseTracingTests(unittest.TestCase):
         self.assertEqual(captured["metadata"]["trace_id"], "trace-test-001")
         self.assertEqual(captured["metadata"]["session_id"], "session-test")
         self.assertEqual(captured["metadata"]["tags"], ["lessonpack-ai", "test"])
+        self.assertEqual(captured["response_format"], {"type": "json_object"})
+        self.assertEqual(captured["temperature"], 0.1)
         self.assertEqual(otel_endpoint, "https://jp.cloud.langfuse.com/api/public/otel/v1/traces")
         self.assertIn("x-langfuse-ingestion-version=4", otel_headers)
         record.assert_called_once()

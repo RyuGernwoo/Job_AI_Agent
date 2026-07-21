@@ -1,21 +1,67 @@
 synthetic: true
 created_for: LessonPack AI MVP
-created_at: '2026-07-16'
+created_at: '2026-07-21'
 authoring_method: manual_synthetic
 scale: 1-5
+minimum_reviewers: 2
+overall_pass_score: 3.5
+required_evidence:
+- 생성 패키지 JSON
+- DOCX 또는 PPTX 산출물
+- 검색 chunk와 citation 목록
+- 자연어 재생성 전후 패키지
 criteria:
-- name: 교안 적합성
+- id: lesson_alignment
+  name: 교안 적합성
+  weight: 0.2
   pass_score: 4
-  description: 차시 목표와 강의 흐름이 연결되는지 평가
-- name: 실습 적합성
+  description: 차시 목표, NCS 능력단위와 강의 흐름이 일관되게 연결되는지 평가
+  anchors:
+    1: 목표 또는 NCS와 무관한 내용이 다수 포함됨
+    3: 목표와 일부 연결되지만 활동과 평가의 연결이 약함
+    5: 목표, 수업 활동, 평가가 모두 NCS 수행 기준과 직접 연결됨
+- id: practice_actionability
+  name: 실습 실행 가능성
+  weight: 0.2
   pass_score: 4
-  description: 수강생이 120분 안에 수행 가능한지 평가
-- name: 평가 문항 품질
+  description: 학습자가 정해진 차시 시간 안에 절차를 이해하고 결과물을 제출할 수 있는지 평가
+  anchors:
+    1: 절차나 제출물이 없어 수행하기 어려움
+    3: 수행 가능하지만 강사의 추가 설명이나 수정이 필요함
+    5: 준비물, 절차, 제출물, 루브릭만으로 바로 수행 가능함
+- id: assessment_quality
+  name: 평가 문항 품질
+  weight: 0.2
+  pass_score: 4
+  description: 객관식 정답·해설과 수행평가 루브릭이 학습목표를 타당하게 측정하는지 평가
+  anchors:
+    1: 정답 오류 또는 목표와 무관한 문항이 다수 존재함
+    3: 형식은 완성되었지만 난이도나 변별력이 부족함
+    5: 정답, 해설, 난이도, 루브릭이 목표와 일관되고 현장 사용 가능함
+- id: grounding
+  name: 근거 신뢰도
+  weight: 0.2
+  pass_score: 4
+  description: 핵심 주장과 활동이 검색된 교재/NCS 근거로 확인되며 출처가 추적 가능한지 평가
+  anchors:
+    1: 근거가 없거나 인용한 출처에서 내용을 확인할 수 없음
+    3: 주요 내용 일부만 근거로 확인 가능함
+    5: 핵심 내용 전체가 정확한 chunk와 출처 메타데이터로 추적 가능함
+- id: regeneration_effectiveness
+  name: 자연어 재생성 유효성
+  weight: 0.1
   pass_score: 3
-  description: 정답, 해설, 난이도가 일관적인지 평가
-- name: 근거 신뢰도
-  pass_score: 4
-  description: Python/NCS chunk citation이 핵심 항목에 붙었는지 평가
-- name: 수정 편의성
+  description: 원본을 보존하면서 사용자의 자연어 수정 지시가 새 패키지에 반영되는지 평가
+  anchors:
+    1: 지시가 반영되지 않거나 원본 패키지가 변경됨
+    3: 핵심 지시는 반영되지만 불필요한 변경이 일부 발생함
+    5: 지시 범위만 명확히 개선되고 원본과 근거 연결이 보존됨
+- id: document_readiness
+  name: 문서 완성도
+  weight: 0.1
   pass_score: 3
-  description: 강사가 문장을 쉽게 수정할 수 있는지 평가
+  description: DOCX/PPTX의 구조, 가독성, 파일명이 실제 수업 운영에 적합한지 평가
+  anchors:
+    1: 누락·깨짐·과도한 근거 표기로 바로 사용할 수 없음
+    3: 일부 편집 후 사용할 수 있음
+    5: 근거는 마지막 단원에 정리되고 별도 편집 없이 배포 가능함

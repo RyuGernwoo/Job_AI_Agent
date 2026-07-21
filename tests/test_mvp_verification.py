@@ -40,11 +40,15 @@ class MVPVerificationTests(unittest.TestCase):
             self.assertEqual(report["validation"]["counts"]["chunks"], 2)
             self.assertEqual(report["retrieval"]["hit_rate"], 1.0)
             self.assertEqual(report["retrieval"]["average_context_recall"], 1.0)
+            self.assertEqual(report["retrieval"]["average_ndcg_at_k"], 1.0)
+            self.assertEqual(report["retrieval"]["average_required_concept_coverage"], 1.0)
             self.assertEqual(report["generation"]["case_pass_rate"], 1.0)
             self.assertEqual(report["generation"]["average_citation_coverage"], 1.0)
+            self.assertEqual(report["generation"]["average_assessment_quality"], 1.0)
+            self.assertEqual(report["generation"]["average_duration_alignment"], 1.0)
             self.assertTrue(report["demo"]["docx_exists"])
             self.assertTrue(report["demo"]["pptx_exists"])
-            self.assertIn("MVP Verification Report", markdown)
+            self.assertIn("MVP 품질 평가 결과", markdown)
             self.assertIn("PASS", markdown)
 
     def _write_dataset(self, data_dir: Path) -> None:

@@ -159,6 +159,7 @@ python -m pytest -q
 python scripts\check_llm_provider.py --config config.example.yaml
 python scripts\run_mvp_demo.py --provider mock --output-dir outputs\demo
 python scripts\run_mvp_verification.py --output-dir outputs\eval --demo-case-id g003
+python scripts\run_mvp_verification.py --require-live-rag --require-real-llm --output-dir outputs\eval-live
 python scripts\inspect_export_quality.py --docx outputs\demo\g003_lesson_package.docx --pptx outputs\demo\g003_lesson_package.pptx
 ```
 
@@ -191,6 +192,7 @@ python scripts\inspect_export_quality.py --docx outputs\demo\g003_lesson_package
 - [RAG 구축 및 연동 기획서](docs/02_implementation-readiness/07_RAG_구축_연동_기획서.md)
 - [자연어 패키지 재생성 구현서](docs/02_implementation-readiness/08_자연어_패키지_재생성_구현서.md)
 - [검증 프로토콜](docs/02_implementation-readiness/03_검증_프로토콜.md)
+- [MVP 품질 평가 결과](docs/04_validation/01_MVP_품질_평가_결과.md)
 - [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
 
 ### 보안 주의

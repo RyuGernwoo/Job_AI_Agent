@@ -50,6 +50,11 @@ def retrieve_chunks(*, query: str, chunks: list[MaterialChunk], top_k: int) -> l
     return [chunk for _, _, _, chunk in scored[:top_k]]
 
 
+def expanded_query_terms(query: str) -> list[str]:
+    """Return normalized query terms with the domain synonym set applied."""
+    return _expand_terms(_tokenize(query))
+
+
 def _tokenize(text: str) -> list[str]:
     return [token.casefold() for token in _TOKEN_PATTERN.findall(text) if token.strip()]
 

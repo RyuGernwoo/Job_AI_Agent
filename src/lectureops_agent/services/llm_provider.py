@@ -64,7 +64,10 @@ class HTTPChatCompletionsProvider:
             "messages": [
                 {
                     "role": "system",
-                    "content": "You generate grounded lesson package outlines for LessonPack AI.",
+                    "content": (
+                        "You generate grounded lesson packages for LessonPack AI. "
+                        "Return exactly one JSON object matching the schema in the user request."
+                    ),
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -99,6 +102,7 @@ class LiteLLMProvider:
         fallback_models: list[str] | None = None,
         timeout_seconds: int | float | None = None,
         callbacks: list[str] | None = None,
+        schema_retries: int = 1,
     ) -> None:
         if not model.strip():
             raise ValueError("model is required")
@@ -106,6 +110,7 @@ class LiteLLMProvider:
         self.fallback_models = fallback_models or []
         self.timeout_seconds = timeout_seconds
         self.callbacks = callbacks or []
+        self.schema_retries = max(0, schema_retries)
         fallback_label = f" -> {', '.join(self.fallback_models)}" if self.fallback_models else ""
         self.name = f"litellm:{model}{fallback_label}"
 
@@ -133,6 +138,9 @@ class LiteLLMProvider:
                 {"role": "user", "content": prompt},
             ],
             "metadata": metadata,
+            "response_format": {"type": "json_object"},
+            "temperature": 0.1,
+            "drop_params": True,
         }
         if self.fallback_models:
             request["fallbacks"] = list(self.fallback_models)
@@ -186,6 +194,7 @@ def create_llm_provider_from_config(config: LessonPackConfig) -> LLMProvider:
             fallback_models=config.llm.fallback_models,
             timeout_seconds=config.llm.timeout_seconds,
             callbacks=_configured_callbacks(config),
+            schema_retries=config.llm.schema_retries,
         )
     raise ValueError(f"unsupported LLM provider: {config.llm.provider}")
 
@@ -210,6 +219,7 @@ def create_llm_provider_from_env() -> LLMProvider:
                 os.getenv("LESSONPACK_LITELLM_CALLBACKS")
                 or os.getenv("LESSONPACK_LITELLM_SUCCESS_CALLBACKS", "langfuse_otel")
             ),
+            schema_retries=_optional_int_env("LESSONPACK_LLM_SCHEMA_RETRIES", default=1),
         )
     raise ValueError(f"unsupported LLM provider without LESSONPACK_CONFIG: {provider_name}")
 
@@ -282,3 +292,10 @@ def _optional_float_env(name: str) -> int | float | None:
         return None
     parsed = float(value)
     return int(parsed) if parsed.is_integer() else parsed
+
+
+def _optional_int_env(name: str, *, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    return int(value)

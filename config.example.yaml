@@ -9,6 +9,7 @@ llm:
   fallback_models:
     - gemini/gemini-2.0-flash
   timeout_seconds: 30
+  schema_retries: 1
   callbacks:
     - langfuse_otel
 

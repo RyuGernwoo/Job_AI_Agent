@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import math
 import os
-import re
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
@@ -15,9 +14,8 @@ from lectureops_agent.services.embedding_provider import (
     HashEmbeddingProvider,
     create_embedding_provider,
 )
-from lectureops_agent.services.retrieval_service import retrieve_chunks
+from lectureops_agent.services.retrieval_service import expanded_query_terms, retrieve_chunks
 
-_TOKEN_PATTERN = re.compile(r"[0-9A-Za-z\uac00-\ud7a3_]+")
 _INTERNAL_METADATA_KEYS = {"project_id", "document_id", "source_name", "source_type", "page"}
 
 
@@ -332,10 +330,6 @@ def _optional_int_env(name: str, *, default: int) -> int:
     return int(value)
 
 
-def _tokenize(text: str) -> list[str]:
-    return _TOKEN_PATTERN.findall(text.casefold())
-
-
 def _chunk_to_supabase_row(
     *,
     project_id: str,
@@ -449,27 +443,35 @@ def _query_scoped(
         previous = deduplicated.get(result.chunk.chunk_id)
         if previous is None or result.score > previous.score:
             deduplicated[result.chunk.chunk_id] = result
+
+    content_deduplicated: dict[str, VectorSearchResult] = {}
+    for result in deduplicated.values():
+        content_key = hashlib.sha256(" ".join(result.chunk.text.split()).casefold().encode("utf-8")).hexdigest()
+        previous = content_deduplicated.get(content_key)
+        if previous is None or result.score > previous.score:
+            content_deduplicated[content_key] = result
     return sorted(
-        deduplicated.values(),
+        content_deduplicated.values(),
         key=lambda item: (item.score, item.vector_similarity, item.lexical_overlap, item.chunk.chunk_id),
         reverse=True,
     )[:top_k]
 
 
 def _combined_score(vector_similarity: float, lexical_overlap: float, *, project_scope: bool) -> float:
-    score = 0.75 * max(0.0, vector_similarity) + 0.20 * lexical_overlap
+    score = 0.55 * max(0.0, vector_similarity) + 0.40 * lexical_overlap
     if project_scope:
         score += 0.05
     return _bounded(score, minimum=0.0, maximum=1.0)
 
 
 def _lexical_overlap(query: str, chunk: MaterialChunk) -> float:
-    query_terms = set(_tokenize(query))
+    query_terms = set(expanded_query_terms(query))
     if not query_terms:
         raise ValueError("query must include at least one term")
     metadata_text = " ".join(str(value) for value in chunk.metadata.values())
-    chunk_terms = set(_tokenize(f"{chunk.source_name} {chunk.text} {metadata_text}"))
-    return len(query_terms & chunk_terms) / len(query_terms)
+    chunk_text = f"{chunk.chunk_id} {chunk.document_id} {chunk.source_name} {chunk.text} {metadata_text}".casefold()
+    matched_terms = sum(1 for term in query_terms if term in chunk_text)
+    return matched_terms / len(query_terms)
 
 
 def _bounded(value: float, *, minimum: float, maximum: float) -> float:

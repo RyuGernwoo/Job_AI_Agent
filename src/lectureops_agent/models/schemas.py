@@ -208,6 +208,8 @@ class GenerationLog(BaseModel):
     prompt: str = Field(min_length=1)
     response_text: str = Field(min_length=1)
     structured_output_applied: bool = False
+    generation_attempts: int = Field(default=1, ge=1)
+    schema_validation_errors: list[str] = Field(default_factory=list)
     retrieval_run_id: str | None = None
     trace_id: str | None = None
     source_package_id: str | None = None

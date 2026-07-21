@@ -118,6 +118,11 @@ class GenerationEvaluationTests(unittest.TestCase):
         self.assertGreaterEqual(result["ncs_alignment_coverage"]["coverage"], 0.9)
         self.assertEqual(result["source_metadata_coverage"]["coverage"], 1.0)
         self.assertGreaterEqual(result["citation_diversity"]["unique_chunk_count"], 2)
+        self.assertEqual(result["citation_source_resolution"]["coverage"], 1.0)
+        self.assertEqual(result["assessment_quality"]["coverage"], 1.0)
+        self.assertEqual(result["duration_alignment"]["actual_duration_min"], 120)
+        self.assertEqual(result["duration_alignment"]["score"], 1.0)
+        self.assertEqual(result["mcq_uniqueness"]["coverage"], 1.0)
 
     def test_generation_evaluation_fails_missing_citations(self):
         project = sample_project()
@@ -136,6 +141,31 @@ class GenerationEvaluationTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("practice", result["missing_citation_items"])
         self.assertLess(result["citation_coverage"]["coverage"], 1.0)
+
+    def test_generation_evaluation_fails_duplicate_mcq_and_unresolved_source(self):
+        project = sample_project()
+        chunks = sample_chunks(project.project_id)
+        package = generate_lesson_package(project=project, retrieved_chunks=chunks, package_id="package-bad-quality")
+        package.assessment.multiple_choice[1].question = package.assessment.multiple_choice[0].question
+        package.evidence_sources = package.evidence_sources[:1]
+        expected = {
+            "lesson_plan_sections": ["도입", "전개", "정리"],
+            "practice_required": ["평가 기준"],
+            "assessment_required": {"mcq_count": 5, "performance_task_count": 1},
+            "citation_required": True,
+            "min_citation_source_resolution": 1.0,
+            "min_mcq_uniqueness": 1.0,
+        }
+
+        result = evaluate_lesson_package(
+            package=package,
+            expected=expected,
+            retrieved_chunk_ids=[chunk.chunk_id for chunk in chunks],
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertLess(result["citation_source_resolution"]["coverage"], 1.0)
+        self.assertLess(result["mcq_uniqueness"]["coverage"], 1.0)
 
 
 if __name__ == "__main__":

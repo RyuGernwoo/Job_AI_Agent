@@ -13,6 +13,7 @@ from lectureops_agent.models.schemas import MaterialChunk
 from lectureops_agent.services.vector_store import (
     InMemoryVectorStore,
     SupabaseVectorStore,
+    _lexical_overlap,
     create_vector_store_from_config,
     create_vector_store_from_env,
     resolve_embedding_version,
@@ -321,8 +322,23 @@ class VectorStoreTests(unittest.TestCase):
             include_baseline=True,
         )
 
-        self.assertEqual([item.scope for item in results], ["project", "baseline"])
-        self.assertGreater(results[0].score, results[1].score)
+        self.assertEqual([item.scope for item in results], ["project"])
+
+    def test_vector_lexical_overlap_expands_korean_domain_synonyms(self):
+        chunk = MaterialChunk(
+            chunk_id="python-functions-c001",
+            project_id="mvp-dataset",
+            document_id="python-functions",
+            source_name="Python Functions",
+            source_type="md",
+            page=None,
+            text="Define a function and assess it with a rubric.",
+            metadata={"tags": ["function", "assessment"]},
+        )
+
+        score = _lexical_overlap("Python 함수 객관식 평가", chunk)
+
+        self.assertGreaterEqual(score, 0.5)
 
     def test_supabase_query_falls_back_to_exact_project_scan_when_rpc_is_empty(self):
         client = FakeSupabaseClient()

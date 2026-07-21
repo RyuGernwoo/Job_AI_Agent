@@ -23,7 +23,7 @@ from lectureops_agent.models.schemas import (
     Project,
     StandardTemplateMetadata,
 )
-from lectureops_agent.services.llm_provider import LLMProvider, MockLLMProvider
+from lectureops_agent.services.llm_provider import LLMProvider, MockLLMProvider, llm_trace_context
 
 
 @dataclass(frozen=True)
@@ -131,15 +131,40 @@ def generate_lesson_package_with_log(
         source_package=source_package,
         revision_instruction=revision_instruction,
     )
-    provider_response = provider.generate(prompt=prompt).strip()
-    if not provider_response:
-        raise ValueError("llm provider returned empty response")
-
     package_id = package_id or str(uuid4())
-    provider_draft = _parse_provider_draft(
-        provider_response,
-        allowed_citation_ids={chunk.chunk_id for chunk in retrieved_chunks},
-    )
+    resolved_trace_id = trace_id or uuid4().hex
+    allowed_citation_ids = {chunk.chunk_id for chunk in retrieved_chunks}
+    provider_draft = None
+    provider_response = ""
+    validation_errors: list[str] = []
+    generation_prompt = prompt
+    max_attempts = 1 + max(0, int(getattr(provider, "schema_retries", 0)))
+    for attempt in range(1, max_attempts + 1):
+        with llm_trace_context(
+            {
+                "trace_id": resolved_trace_id,
+                "retrieval_run_id": retrieval_run_id,
+                "project_id": project.project_id,
+                "package_id": package_id,
+                "generation_attempt": attempt,
+            }
+        ):
+            provider_response = provider.generate(prompt=generation_prompt).strip()
+        if not provider_response:
+            raise ValueError("llm provider returned empty response")
+        provider_draft, validation_error = _parse_provider_draft_with_error(
+            provider_response,
+            allowed_citation_ids=allowed_citation_ids,
+        )
+        if provider_draft is not None:
+            break
+        validation_errors.append(validation_error)
+        if attempt < max_attempts:
+            generation_prompt = _build_schema_repair_prompt(
+                original_prompt=prompt,
+                invalid_response=provider_response,
+                validation_error=validation_error,
+            )
     if source_package is not None and provider_draft is None:
         raise ValueError("LLM revision response did not match the required package schema")
     output_status = PackageStatus.REGENERATED if source_package is not None else PackageStatus.GENERATED
@@ -159,8 +184,10 @@ def generate_lesson_package_with_log(
         prompt=prompt,
         response_text=provider_response,
         structured_output_applied=provider_draft is not None,
+        generation_attempts=min(max_attempts, len(validation_errors) + 1),
+        schema_validation_errors=validation_errors,
         retrieval_run_id=retrieval_run_id,
-        trace_id=trace_id,
+        trace_id=resolved_trace_id,
         source_package_id=source_package.package_id if source_package else None,
         revision_instruction=revision_instruction.strip() if revision_instruction else None,
         citation_ids=citation_ids,
@@ -199,6 +226,7 @@ def build_generation_prompt(
             f"{_truncate_words(chunk.text, max_chars=1200)}"
         )
     evidence_text = "\n".join(evidence_lines)
+    practice_keyword_text = ", ".join(_practice_keywords(project=project, retrieved_chunks=retrieved_chunks))
     revision_context = ""
     if source_package is not None and revision_instruction is not None:
         source_payload = _revision_source_payload(source_package)
@@ -223,6 +251,7 @@ def build_generation_prompt(
         f"{ncs_text or '- NCS unit not provided'}\n"
         "Retrieved evidence chunks:\n"
         f"{evidence_text}\n"
+        f"Required grounded practice concepts: {practice_keyword_text}\n"
         f"{revision_context}"
         "Return one JSON object only, without Markdown fences or explanatory text. Use this exact schema:\n"
         '{"lesson_plan":{"lecture_flow":[{"section":"도입","duration_min":15,'
@@ -239,7 +268,8 @@ def build_generation_prompt(
         "Write all learner-facing text in natural Korean. Do not repeat labels such as '수행 절차:' or '제출물:' "
         "inside values. Use only citation IDs shown above, and attach each citation only to content directly "
         "supported by that chunk. Do not introduce proper nouns, numbers, laws, or certifications absent from "
-        "the evidence. Keep the practice and assessments aligned with the stated learning objectives and NCS units."
+        "the evidence. Keep the practice and assessments aligned with the stated learning objectives and NCS units. "
+        "Include every required grounded practice concept verbatim in the practice scenario, steps, submission, or rubric."
     )
 
 
@@ -468,26 +498,63 @@ def _parse_provider_draft(
     *,
     allowed_citation_ids: set[str],
 ) -> _ProviderPackageDraft | None:
+    draft, _ = _parse_provider_draft_with_error(
+        response_text,
+        allowed_citation_ids=allowed_citation_ids,
+    )
+    return draft
+
+
+def _parse_provider_draft_with_error(
+    response_text: str,
+    *,
+    allowed_citation_ids: set[str],
+) -> tuple[_ProviderPackageDraft | None, str]:
     start = response_text.find("{")
     end = response_text.rfind("}")
     if start < 0 or end <= start:
-        return None
+        return None, "response did not contain a JSON object"
     try:
         payload = json.loads(response_text[start : end + 1])
         draft = _ProviderPackageDraft.model_validate(payload)
-    except (json.JSONDecodeError, ValidationError, TypeError):
-        return None
+    except json.JSONDecodeError as exc:
+        return None, f"invalid JSON at line {exc.lineno} column {exc.colno}: {exc.msg}"
+    except ValidationError as exc:
+        errors = "; ".join(
+            f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}"
+            for item in exc.errors()[:8]
+        )
+        return None, f"schema validation failed: {errors}"
+    except TypeError as exc:
+        return None, f"response JSON type is invalid: {exc}"
 
     if [flow.section.strip() for flow in draft.lesson_plan.lecture_flow] != ["도입", "전개", "정리"]:
-        return None
+        return None, "lecture_flow sections must be exactly 도입, 전개, 정리 in that order"
     citation_ids = {
         citation_id
         for group in _provider_citation_groups(draft)
         for citation_id in group
     }
     if not citation_ids or not citation_ids.issubset(allowed_citation_ids):
-        return None
-    return draft
+        invalid_ids = sorted(citation_ids - allowed_citation_ids)
+        return None, f"citation_ids include unavailable chunks: {invalid_ids}"
+    return draft, ""
+
+
+def _build_schema_repair_prompt(
+    *,
+    original_prompt: str,
+    invalid_response: str,
+    validation_error: str,
+) -> str:
+    return (
+        f"{original_prompt}\n\n"
+        "Your previous response could not be applied. Correct it using the validation feedback below.\n"
+        f"Validation feedback: {validation_error}\n"
+        "Return one corrected JSON object only. Do not add Markdown fences, explanations, or fields outside the requested schema.\n"
+        "Previous response:\n"
+        f"{invalid_response}"
+    )
 
 
 def _provider_citation_groups(draft: _ProviderPackageDraft) -> list[list[str]]:
@@ -522,10 +589,17 @@ def _package_from_provider_draft(
             for index, flow in enumerate(provider_draft.lesson_plan.lecture_flow)
         ],
     )
-    practice = Practice(
+    practice_submission = _practice_submission_with_required_keywords(
         scenario=provider_draft.practice.scenario,
         steps=provider_draft.practice.steps,
         submission=provider_draft.practice.submission,
+        rubric=provider_draft.practice.rubric,
+        required_keywords=_practice_keywords(project=project, retrieved_chunks=retrieved_chunks),
+    )
+    practice = Practice(
+        scenario=provider_draft.practice.scenario,
+        steps=provider_draft.practice.steps,
+        submission=practice_submission,
         rubric=provider_draft.practice.rubric,
         citation_ids=provider_draft.practice.citation_ids,
         ncs_alignment=alignments,
@@ -649,6 +723,21 @@ def _practice_keywords(*, project: Project, retrieved_chunks: list[MaterialChunk
         if any(trigger in text for trigger in triggers):
             keywords.append(keyword)
     return keywords
+
+
+def _practice_submission_with_required_keywords(
+    *,
+    scenario: str,
+    steps: list[str],
+    submission: str,
+    rubric: list[str],
+    required_keywords: list[str],
+) -> str:
+    practice_text = " ".join([scenario, *steps, submission, *rubric]).casefold()
+    missing = [keyword for keyword in required_keywords if keyword.casefold() not in practice_text]
+    if not missing:
+        return submission
+    return f"{submission.rstrip()} 필수 확인 요소: {', '.join(missing)}."
 
 
 def _truncate_words(value: str, *, max_chars: int) -> str:

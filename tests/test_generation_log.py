@@ -83,6 +83,21 @@ class StructuredLLMProvider:
         return json.dumps(payload, ensure_ascii=False)
 
 
+class RepairingLLMProvider(StructuredLLMProvider):
+    name = "repairing-test"
+    schema_retries = 1
+
+    def __init__(self, citation_id: str) -> None:
+        super().__init__(citation_id)
+        self.prompts: list[str] = []
+
+    def generate(self, *, prompt: str) -> str:
+        self.prompts.append(prompt)
+        if len(self.prompts) == 1:
+            return "not-json"
+        return super().generate(prompt=prompt)
+
+
 def sample_project_create() -> ProjectCreate:
     return ProjectCreate(
         course_title="Generative AI Python Basics",
@@ -136,6 +151,9 @@ class GenerationLogTests(unittest.TestCase):
         self.assertIn("Provider outline", result.log.response_text)
         self.assertEqual(result.log.citation_ids, [chunk.chunk_id])
         self.assertEqual(result.log.retrieved_chunk_ids, [chunk.chunk_id])
+        self.assertTrue(result.log.trace_id)
+        self.assertEqual(result.log.generation_attempts, 1)
+        self.assertEqual(len(result.log.schema_validation_errors), 1)
         self.assertIn(project.lesson_title, result.log.prompt)
         self.assertIn(chunk.text, result.log.prompt)
         self.assertEqual(provider.prompts, [result.log.prompt])
@@ -154,9 +172,28 @@ class GenerationLogTests(unittest.TestCase):
         self.assertTrue(result.log.structured_output_applied)
         self.assertEqual(result.package.lesson_plan.lecture_flow[1].content, "매개변수를 받는 함수를 작성하고 호출 결과를 비교한다.")
         self.assertEqual(result.package.practice.scenario, "입력값을 받아 결과를 반환하는 자동화 함수를 작성한다.")
+        self.assertIn("함수화", result.package.practice.submission)
         self.assertEqual(len(result.package.assessment.multiple_choice), 5)
         self.assertEqual(result.log.citation_ids, [chunk.chunk_id])
         self.assertIn("Return one JSON object only", result.log.prompt)
+
+    def test_generation_repairs_invalid_structured_output_once(self):
+        project = sample_project_create().to_project(project_id="project-001")
+        chunk = sample_chunk(project.project_id)
+        provider = RepairingLLMProvider(chunk.chunk_id)
+
+        result = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=[chunk],
+            llm_provider=provider,
+            package_id="package-repaired",
+        )
+
+        self.assertTrue(result.log.structured_output_applied)
+        self.assertEqual(result.log.generation_attempts, 2)
+        self.assertEqual(len(result.log.schema_validation_errors), 1)
+        self.assertIn("validation feedback", provider.prompts[1])
+        self.assertIn("response did not contain a JSON object", provider.prompts[1])
 
     def test_generation_rejects_structured_output_with_unknown_citation(self):
         project = sample_project_create().to_project(project_id="project-001")
