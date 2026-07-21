@@ -44,7 +44,7 @@ CI/CD 도구: GitHub Actions + GHCR + SSH 배포
 
 | 제외 항목 | 제외 사유 | 후속 단계 |
 | --- | --- | --- |
-| Streamlit UI 배포 | API 안정화가 우선이며 포트와 인증 정책이 분리되어야 함 | 2차 배포에서 별도 container 또는 reverse proxy로 분리 |
+| 별도 Python UI 배포 | Lovable 웹 UI가 API를 소비하므로 별도 UI container가 불필요함 | Lovable UI의 HTTPS API 연결과 CORS만 운영 |
 | HTTPS와 도메인 | GCE 단일 VM 배포 흐름 검증이 우선 | Nginx 적용 |
 | Load Balancer | 개인 MVP 규모에서는 과함 | 사용자 실증 이후 검토 |
 | Blue/Green, Canary | 1개월 MVP 범위를 초과 | rollback 안정화 후 확장 |
@@ -279,7 +279,7 @@ LECTUREOPS_VECTOR_STORE=supabase
 - `.env`는 Git에 commit하지 않는다.
 - GCE 서버의 `.env`도 repository에서 pull하지 않고 GitHub Actions가 생성한다.
 - Langfuse trace가 대시보드에 보이지 않으면 먼저 `LANGFUSE_OTEL_HOST`가 실제 프로젝트 리전과 같은지 확인하고, `python scripts/check_langfuse_trace.py --output outputs/eval/langfuse_trace_smoke.json`로 synthetic trace를 조회한다.
-- `SUPABASE_SERVICE_ROLE_KEY`는 browser, Streamlit client, public log에 노출하지 않는다.
+- `SUPABASE_SERVICE_ROLE_KEY`는 browser, Lovable client, public log에 노출하지 않는다.
 - workflow log에 secret 값이 출력되지 않도록 `printf`, base64 전달, GitHub secret masking을 사용한다.
 
 ## 8. CI 계획

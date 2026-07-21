@@ -8,7 +8,7 @@
 
 ## 0. 현재 구현 반영 요약
 
-2026-07-20 기준 MVP는 기획 단계를 넘어 FastAPI API, Streamlit 데모 UI, Supabase vector store, LiteLLM 기반 OpenAI primary/Gemini fallback, Langfuse tracing, Docker/GCE CI/CD까지 구현·검증된 상태다. 따라서 이 문서는 초기 기획 의도를 설명하되, 실제 구현 기준은 `docs/README.md`, `README.md`, `02_implementation-readiness/01_구현명세서.md`를 우선 참조한다.
+2026-07-21 기준 MVP는 기획 단계를 넘어 FastAPI API, Lovable 웹 UI 연동, Supabase vector store, LiteLLM 기반 OpenAI primary/Gemini fallback, Langfuse tracing, Docker/GCE CI/CD까지 구현·검증된 상태다. 따라서 이 문서는 초기 기획 의도를 설명하되, 실제 구현 기준은 `docs/README.md`, `README.md`, `02_implementation-readiness/01_구현명세서.md`를 우선 참조한다.
 
 현재 MVP 실증 범위는 “1개 차시 강의 패키지 생성 → 강사 검수 → DOCX/PPTX export”이며, 전체 LMS·자동 채점·기관 계정 관리는 계속 제외 범위로 둔다.
 
@@ -461,7 +461,7 @@ KOSENA 자료는 AI 응답을 그대로 사용하지 않고, 검증·수정·재
 
 | 기능 | 설명 |
 |---|---|
-| Streamlit 또는 간단한 웹 UI |
+| Lovable 기반 웹 UI |
 | 생성 결과 비교 보기 |
 | 문항 난이도 자동 분석 |
 | NCS 능력단위 자동 추천 |
@@ -855,7 +855,7 @@ KOSENA 자료는 AI 응답을 그대로 사용하지 않고, 검증·수정·재
 | 저작권 문제 | 보유 교재를 외부 API에 입력 | 샘플 공개 자료 또는 사용 허가 자료만 사용 |
 | NCS 정합성 부족 | NCS 데이터 구조를 자동 이해하기 어려움 | NCS 능력단위는 수동 입력 필드로 시작 |
 | 출력 품질 편차 | 프롬프트가 모호함 | JSON schema와 템플릿 고정 |
-| UI 구현 지연 | 프론트엔드까지 만들면 시간 부족 | Streamlit 또는 단순 HTML로 시작 |
+| UI 구현 지연 | 프론트엔드까지 만들면 시간 부족 | Lovable 기반 단계형 UI와 FastAPI OpenAPI 문서로 검증 |
 | RAG 구현 난이도 | embedding/vector DB 설정 부담 | Supabase migration과 InMemory 테스트 adapter로 단계적 구현 |
 
 ---

@@ -7,7 +7,7 @@
 
 ## 0. 현재 구현 상태
 
-2026-07-20 기준 이 로드맵의 핵심 Must Have 범위는 구현 완료 상태다. FastAPI API, Streamlit 데모 UI, Supabase 기반 vector store, LiteLLM 기반 LLM provider, Langfuse tracing, DOCX/PPTX export, Docker/GCE CI/CD가 적용되어 있다. 이후 로드맵은 품질 실증, 사용자 검증, UI 개선, semantic embedding 고도화를 중심으로 재해석한다.
+2026-07-21 기준 이 로드맵의 핵심 Must Have 범위는 구현 완료 상태다. FastAPI API, Lovable 웹 UI 연동, Supabase 기반 vector store, LiteLLM 기반 LLM provider, Langfuse tracing, DOCX/PPTX export, Docker/GCE CI/CD가 적용되어 있다. 이후 로드맵은 품질 실증, 사용자 검증, UI 개선, semantic embedding 고도화를 중심으로 재해석한다.
 
 ---
 
@@ -51,7 +51,7 @@
 
 ### Could Have
 
-- Streamlit 또는 간단한 웹 UI 고도화
+- Lovable 웹 UI 고도화
 - 생성 결과 비교 보기
 - 문항 난이도 자동 분석
 - NCS 능력단위 자동 추천

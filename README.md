@@ -50,7 +50,7 @@ LessonPack AI는 직업훈련 강의 준비에 필요한 산출물을 한 번에
 2026-07-21 기준 MVP의 핵심 end-to-end 흐름은 구현되어 있습니다.
 
 - FastAPI API 서버
-- Streamlit 데모 UI
+- Lovable 기반 웹 UI 연동
 - 프로젝트 생성, 자료 업로드, chunking, 검색, 생성, 검수, export API
 - NCS 연계, 검수 이력, 마지막 단원에 통합된 근거 출처가 포함된 DOCX/PPTX 산출물 생성
 - 수업 제목 기반의 짧은 다운로드 파일명과 구조화 LLM JSON 검증·fallback 처리
@@ -69,7 +69,7 @@ LessonPack AI는 직업훈련 강의 준비에 필요한 산출물을 한 번에
 | 영역 | 사용 기술 |
 | --- | --- |
 | API | FastAPI, Pydantic |
-| UI | Streamlit |
+| UI | Lovable (React + TypeScript) |
 | LLMOps | LiteLLM, OpenAI API, Gemini API, Langfuse |
 | Vector Store | Supabase Postgres + pgvector |
 | Export | python-docx, python-pptx |
@@ -104,11 +104,7 @@ Swagger UI:
 http://127.0.0.1:8000/docs
 ```
 
-Streamlit UI:
-
-```powershell
-python -m streamlit run src/lectureops_agent/ui/streamlit_app.py --server.port 8501
-```
+운영 UI는 Lovable 배포 페이지에서 이용합니다. UI 연동 계약과 환경 변수는 [Lovable UI 연동 문서](docs/03_ui-lovable/01_Lovable_UI_생성_프롬프트.md)를 참고합니다.
 
 ### Docker 실행
 

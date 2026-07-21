@@ -60,7 +60,7 @@ docs/
 | 영역 | 상태 |
 | --- | --- |
 | API | FastAPI MVP 구현 |
-| UI | Streamlit 데모 UI 구현 |
+| UI | Lovable 웹 UI 연동 |
 | 데이터셋 | 6개 선별 원천, 43개 chunk, retrieval gold 10개, generation gold 3개 |
 | Vector Store | Supabase Postgres + pgvector, 프로젝트·retrieval/generation run 영속화 migration 구현 |
 | LLMOps | LiteLLM, OpenAI primary, Gemini fallback, Langfuse tracing 적용 |
