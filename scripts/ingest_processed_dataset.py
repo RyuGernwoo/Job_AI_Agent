@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from lectureops_agent.services.dataset_loader import DEFAULT_DATASET_PROJECT_ID, load_processed_chunks
-from lectureops_agent.services.vector_store import create_vector_store_from_env
+from lectureops_agent.services.vector_store import create_vector_store_from_env, resolve_embedding_version
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -29,10 +29,21 @@ def main(argv: list[str] | None = None) -> int:
     vector_store = create_vector_store_from_env()
     vector_store.upsert(project_id=args.project_id, chunks=chunks)
 
+    embedding_column = os.getenv("LESSONPACK_SUPABASE_EMBEDDING_COLUMN", "embedding")
     result: dict[str, Any] = {
         "project_id": args.project_id,
         "chunk_count": len(chunks),
         "vector_store": os.getenv("LECTUREOPS_VECTOR_STORE", "memory"),
+        "embedding": {
+            "provider": os.getenv("LESSONPACK_EMBEDDING_PROVIDER", "hash"),
+            "model": os.getenv("LESSONPACK_EMBEDDING_MODEL", "lessonpack-hash-v1"),
+            "dimensions": int(os.getenv("LESSONPACK_EMBEDDING_DIMENSIONS", "64")),
+            "column": embedding_column,
+            "version": resolve_embedding_version(
+                embedding_column=embedding_column,
+                configured_version=os.getenv("LESSONPACK_EMBEDDING_VERSION"),
+            ),
+        },
     }
     if args.query:
         retrieved = vector_store.query(project_id=args.project_id, query=args.query, top_k=args.top_k)

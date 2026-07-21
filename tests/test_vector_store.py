@@ -15,6 +15,7 @@ from lectureops_agent.services.vector_store import (
     SupabaseVectorStore,
     create_vector_store_from_config,
     create_vector_store_from_env,
+    resolve_embedding_version,
 )
 
 
@@ -177,6 +178,14 @@ class VectorStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "SUPABASE_SERVICE_ROLE_KEY"):
                 create_vector_store_from_env()
 
+    def test_resolve_embedding_version_defaults_from_column(self):
+        self.assertEqual(resolve_embedding_version(embedding_column="embedding"), "v1")
+        self.assertEqual(resolve_embedding_version(embedding_column="embedding_v2"), "v2")
+        self.assertEqual(
+            resolve_embedding_version(embedding_column="embedding_v2", configured_version="custom-v3"),
+            "custom-v3",
+        )
+
     def test_supabase_vector_store_upserts_chunks_as_rows(self):
         client = FakeSupabaseClient()
         store = SupabaseVectorStore(
@@ -207,6 +216,46 @@ class VectorStoreTests(unittest.TestCase):
         self.assertEqual(row["content"], "Functions receive input and return output.")
         self.assertEqual(row["metadata"], {"license": "PSF License"})
         self.assertEqual(len(row["embedding"]), 64)
+        self.assertEqual(row["embedding_version"], "v1")
+
+    def test_supabase_vector_store_writes_semantic_embedding_version(self):
+        client = FakeSupabaseClient()
+        store = SupabaseVectorStore(
+            url="https://example.supabase.co",
+            key="test-key",
+            embedding_provider=FixedEmbeddingProvider([0.1] * 1536),
+            embedding_column="embedding_v2",
+            embedding_version="v2",
+            client=client,
+        )
+        chunk = MaterialChunk(
+            chunk_id="doc001-p000-c001",
+            project_id="project-001",
+            document_id="doc001",
+            source_name="sample.md",
+            source_type="md",
+            page=None,
+            text="Semantic embedding sample.",
+            metadata={},
+        )
+
+        store.upsert(project_id="project-001", chunks=[chunk])
+
+        row = client.upserts[0]["rows"][0]
+        self.assertEqual(len(row["embedding_v2"]), 1536)
+        self.assertEqual(row["embedding_model"], "fixed:test")
+        self.assertEqual(row["embedding_version"], "v2")
+
+    def test_supabase_vector_store_rejects_wrong_v2_dimensions(self):
+        with self.assertRaisesRegex(ValueError, "1536-dimensional"):
+            SupabaseVectorStore(
+                url="https://example.supabase.co",
+                key="test-key",
+                embedding_provider=FixedEmbeddingProvider([0.1, 0.2, 0.3]),
+                embedding_column="embedding_v2",
+                embedding_version="v2",
+                client=FakeSupabaseClient(),
+            )
 
     def test_supabase_vector_store_queries_rpc_and_maps_rows(self):
         client = FakeSupabaseClient()

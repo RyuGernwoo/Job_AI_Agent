@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from lectureops_agent.env import load_env_file
-from lectureops_agent.services.vector_store import SupabaseVectorStore, create_vector_store_from_env
+from lectureops_agent.services.vector_store import (
+    SupabaseVectorStore,
+    create_vector_store_from_env,
+    resolve_embedding_version,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,6 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     load_env_file()
 
+    embedding_column = os.getenv("LESSONPACK_SUPABASE_EMBEDDING_COLUMN", "embedding")
     report: dict = {
         "ready": False,
         "provider": os.getenv("LECTUREOPS_VECTOR_STORE", "memory"),
@@ -46,7 +51,11 @@ def main(argv: list[str] | None = None) -> int:
         "embedding_provider": os.getenv("LESSONPACK_EMBEDDING_PROVIDER", "hash"),
         "embedding_model": os.getenv("LESSONPACK_EMBEDDING_MODEL", "lessonpack-hash-v1"),
         "embedding_dimensions": int(os.getenv("LESSONPACK_EMBEDDING_DIMENSIONS", "64")),
-        "embedding_column": os.getenv("LESSONPACK_SUPABASE_EMBEDDING_COLUMN", "embedding"),
+        "embedding_column": embedding_column,
+        "embedding_version": resolve_embedding_version(
+            embedding_column=embedding_column,
+            configured_version=os.getenv("LESSONPACK_EMBEDDING_VERSION"),
+        ),
         "credentials": {
             "supabase_url_set": bool(os.getenv("SUPABASE_URL", "").strip()),
             "service_role_key_set": bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()),

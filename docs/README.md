@@ -62,7 +62,7 @@ docs/
 | API | FastAPI MVP 구현 |
 | UI | Lovable 웹 UI 연동 |
 | 데이터셋 | 6개 선별 원천, 43개 chunk, retrieval gold 10개, generation gold 3개 |
-| Vector Store | Supabase Postgres + pgvector, 프로젝트·retrieval/generation run 영속화 migration 구현 |
+| Vector Store | Supabase Postgres + pgvector, 프로젝트·retrieval/generation run 영속화 및 1536차원 semantic 재색인 완료 |
 | LLMOps | LiteLLM, OpenAI primary, Gemini fallback, Langfuse tracing 적용 |
 | Export | DOCX/PPTX export 구현 |
 | 배포 | Docker, GCE, GitHub Actions CI/CD 적용 및 실배포 확인 |

@@ -28,6 +28,7 @@ class VectorStoreConfig(BaseModel):
     embedding_model: str = "lessonpack-hash-v1"
     embedding_dimensions: int = Field(default=64, gt=0)
     embedding_column: str = "embedding"
+    embedding_version: str = Field(default="v1", min_length=1)
 
 
 class LessonPackConfig(BaseModel):

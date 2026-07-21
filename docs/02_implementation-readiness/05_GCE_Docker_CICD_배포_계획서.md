@@ -230,8 +230,13 @@ GCE 배포와 운영 실행에 필요한 값을 GitHub Repository Secrets에 등
 | `SUPABASE_URL` | 예 | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | 예 | Supabase server-side key |
 | `LESSONPACK_SUPABASE_TABLE` | 선택 | 기본 `lessonpack_chunks` |
-| `LESSONPACK_SUPABASE_MATCH_FUNCTION` | 선택 | 기본 `match_lessonpack_chunks` |
+| `LESSONPACK_SUPABASE_MATCH_FUNCTION` | 불필요 | CD가 `match_lessonpack_chunks_v2`로 고정 |
 | `LESSONPACK_SUPABASE_MATCH_THRESHOLD` | 선택 | 기본 `0.0` |
+| `LESSONPACK_EMBEDDING_PROVIDER` | 불필요 | CD가 `litellm`으로 고정 |
+| `LESSONPACK_EMBEDDING_MODEL` | 불필요 | CD가 `text-embedding-3-small`으로 고정 |
+| `LESSONPACK_EMBEDDING_DIMENSIONS` | 불필요 | CD가 `1536`으로 고정 |
+| `LESSONPACK_SUPABASE_EMBEDDING_COLUMN` | 불필요 | CD가 `embedding_v2`로 고정 |
+| `LESSONPACK_EMBEDDING_VERSION` | 불필요 | CD가 `v2`로 고정 |
 | `LESSONPACK_CONFIG` | 선택 | 서버에서 config 파일을 쓸 경우 `config.yaml` |
 | `LESSONPACK_LLM_PROVIDER` | 선택 | env-only fallback, 기본 `litellm` |
 | `LESSONPACK_LITELLM_MODEL` | 선택 | 기본 `gpt-4o-mini` |
@@ -269,8 +274,13 @@ LESSONPACK_LANGFUSE_FLUSH_WAIT_SECONDS=1.0
 SUPABASE_URL=<github-secret>
 SUPABASE_SERVICE_ROLE_KEY=<github-secret>
 LESSONPACK_SUPABASE_TABLE=lessonpack_chunks
-LESSONPACK_SUPABASE_MATCH_FUNCTION=match_lessonpack_chunks
+LESSONPACK_SUPABASE_MATCH_FUNCTION=match_lessonpack_chunks_v2
 LESSONPACK_SUPABASE_MATCH_THRESHOLD=0.0
+LESSONPACK_EMBEDDING_PROVIDER=litellm
+LESSONPACK_EMBEDDING_MODEL=text-embedding-3-small
+LESSONPACK_EMBEDDING_DIMENSIONS=1536
+LESSONPACK_SUPABASE_EMBEDDING_COLUMN=embedding_v2
+LESSONPACK_EMBEDDING_VERSION=v2
 LECTUREOPS_VECTOR_STORE=supabase
 ```
 
@@ -520,7 +530,7 @@ GCE 배포 전에 Supabase project에서 migration을 먼저 실행한다.
 1. Supabase project 생성
 2. SQL Editor에서 `supabase/migrations/001_lessonpack_vectors.sql` 실행
 3. `lessonpack_chunks` table 생성 확인
-4. `match_lessonpack_chunks` RPC 함수 생성 확인
+4. `match_lessonpack_chunks_v2` RPC 함수 생성 확인
 5. HNSW cosine index 생성 확인
 6. 로컬 또는 수동 스크립트로 processed chunks ingest
 7. GitHub Secrets에 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` 등록

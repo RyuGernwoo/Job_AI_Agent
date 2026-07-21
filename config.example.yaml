@@ -40,3 +40,4 @@ vector_store:
   embedding_model: lessonpack-hash-v1
   embedding_dimensions: 64
   embedding_column: embedding
+  embedding_version: v1

@@ -147,7 +147,7 @@ python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-
 python scripts\check_rag_readiness.py --check-schema --query "Python 함수 return" --top-k 3
 ```
 
-현재 MVP 데이터셋은 6개 원천 자료에서 생성한 43개 chunk를 사용합니다. Supabase 적재 전에는 `supabase/migrations/001_lessonpack_vectors.sql`, `002_rag_persistence.sql` 순서로 Supabase SQL Editor에서 실행해야 합니다. 운영 API는 신규 프로젝트 자료와 `mvp-dataset` 근거를 함께 검색하며, 검색 실행 ID를 생성 로그와 연결합니다.
+현재 MVP 데이터셋은 6개 원천 자료에서 생성한 43개 chunk를 사용합니다. Supabase에는 `002_rag_persistence.sql` 적용 후 LiteLLM을 통한 `text-embedding-3-small` 1536차원 벡터가 `embedding_v2`에 재적재되어 있습니다. 데이터셋을 변경하면 적재 명령을 다시 실행해 semantic 벡터를 갱신합니다. 운영 API는 신규 프로젝트 자료와 `mvp-dataset` 근거를 함께 검색하며, 검색 실행 ID를 생성 로그와 연결합니다.
 
 자세한 내용은 [데이터셋 운영 문서](data/README_DATASET.md)를 참고하십시오.
 

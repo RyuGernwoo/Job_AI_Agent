@@ -160,10 +160,12 @@ LESSONPACK_SUPABASE_MATCH_THRESHOLD=0.0
 LESSONPACK_BASELINE_PROJECT_ID=mvp-dataset
 LESSONPACK_RETRIEVAL_CANDIDATE_K=20
 LESSONPACK_RETRIEVAL_TOP_K=5
-LESSONPACK_EMBEDDING_PROVIDER=hash
-LESSONPACK_EMBEDDING_MODEL=lessonpack-hash-v1
-LESSONPACK_EMBEDDING_DIMENSIONS=64
-LESSONPACK_SUPABASE_EMBEDDING_COLUMN=embedding
+LESSONPACK_EMBEDDING_PROVIDER=litellm
+LESSONPACK_EMBEDDING_MODEL=text-embedding-3-small
+LESSONPACK_EMBEDDING_DIMENSIONS=1536
+LESSONPACK_SUPABASE_EMBEDDING_COLUMN=embedding_v2
+LESSONPACK_SUPABASE_MATCH_FUNCTION=match_lessonpack_chunks_v2
+LESSONPACK_EMBEDDING_VERSION=v2
 ```
 
 전처리된 chunk를 Supabase에 적재하고 검색 smoke test를 수행합니다.
@@ -173,7 +175,7 @@ python scripts\ingest_processed_dataset.py --query "Python 함수 return" --top-
 python scripts\check_rag_readiness.py --check-schema --query "Python 함수 return" --top-k 3
 ```
 
-현재 외부 Supabase 프로젝트의 `lessonpack_chunks` 테이블에는 `mvp-dataset` 기준 43개 chunk가 적재되어 있습니다.
+2026-07-21에 기존 43개 `mvp-dataset` chunk를 위 구성으로 재적재해 `embedding_v2`와 `embedding_version=v2`를 확인했다. 이후 데이터셋을 변경하면 같은 명령으로 해당 chunk를 갱신한다. 기존 `embedding` 값은 호환성 확인 전까지 유지한다.
 
 ## 9. 검색 평가
 
@@ -214,7 +216,7 @@ python scripts\run_mvp_verification.py --output-dir outputs\eval --demo-case-id 
 
 ## 12. 현재 한계
 
-- 현재 chunk embedding은 운영형 semantic embedding 모델이 아니라 MVP용 경량 해시 벡터입니다.
+- semantic embedding은 LiteLLM을 통해 OpenAI `text-embedding-3-small`을 사용한다. 외부 API 비용과 rate limit을 고려해 전체 재색인은 데이터셋 변경 시에만 수행한다.
 - 실제 강사 사용성 평가는 별도 수집이 필요합니다.
 - 원천 자료 라이선스는 문서화되어 있지만 자동 판정하지 않습니다.
 - NCS PDF의 표, 이미지, 복잡한 레이아웃은 Markdown 변환 과정에서 일부 손실될 수 있습니다.

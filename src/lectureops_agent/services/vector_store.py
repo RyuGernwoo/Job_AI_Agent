@@ -108,6 +108,7 @@ class SupabaseVectorStore:
         baseline_project_id: str = "mvp-dataset",
         embedding_provider: EmbeddingProvider | None = None,
         embedding_column: str = "embedding",
+        embedding_version: str = "v1",
         client: Any | None = None,
     ) -> None:
         if not url.strip():
@@ -120,12 +121,19 @@ class SupabaseVectorStore:
             raise ValueError("Supabase match_function is required")
         if not embedding_column.strip():
             raise ValueError("Supabase embedding_column is required")
+        if not embedding_version.strip():
+            raise ValueError("Supabase embedding_version is required")
         self.table_name = table_name
         self.match_function = match_function
         self.match_threshold = match_threshold
         self.baseline_project_id = baseline_project_id
         self.embedding_provider = embedding_provider or HashEmbeddingProvider()
         self.embedding_column = embedding_column
+        self.embedding_version = embedding_version
+        if self.embedding_column == "embedding_v2" and self.embedding_provider.dimensions != 1536:
+            raise ValueError("embedding_v2 requires a 1536-dimensional embedding provider")
+        if self.embedding_version == "v2" and self.embedding_column != "embedding_v2":
+            raise ValueError("embedding version v2 requires the embedding_v2 column")
         if client is None:
             try:
                 from supabase import create_client
@@ -148,6 +156,7 @@ class SupabaseVectorStore:
                 embedding=self.embedding_provider.embed(text=chunk.text),
                 embedding_column=self.embedding_column,
                 embedding_model=self.embedding_provider.name,
+                embedding_version=self.embedding_version,
                 scope="baseline" if project_id == self.baseline_project_id else "project",
             )
             for chunk in chunks
@@ -260,6 +269,7 @@ def create_vector_store_from_config(config: VectorStoreConfig) -> VectorStore:
             baseline_project_id=config.baseline_project_id,
             embedding_provider=embedding_provider,
             embedding_column=config.embedding_column,
+            embedding_version=config.embedding_version,
         )
     raise ValueError(f"unsupported vector store: {config.provider}")
 
@@ -270,6 +280,11 @@ def create_vector_store_from_env() -> VectorStore:
     if store_type in {"", "memory", "inmemory", "in-memory"}:
         return InMemoryVectorStore()
     if store_type == "supabase":
+        embedding_column = os.getenv("LESSONPACK_SUPABASE_EMBEDDING_COLUMN", "embedding")
+        embedding_version = resolve_embedding_version(
+            embedding_column=embedding_column,
+            configured_version=os.getenv("LESSONPACK_EMBEDDING_VERSION"),
+        )
         embedding_provider = create_embedding_provider(
             provider=os.getenv("LESSONPACK_EMBEDDING_PROVIDER", "hash"),
             model=os.getenv("LESSONPACK_EMBEDDING_MODEL", "lessonpack-hash-v1"),
@@ -283,9 +298,17 @@ def create_vector_store_from_env() -> VectorStore:
             match_threshold=_optional_float_env("LESSONPACK_SUPABASE_MATCH_THRESHOLD", default=0.0),
             baseline_project_id=os.getenv("LESSONPACK_BASELINE_PROJECT_ID", "mvp-dataset"),
             embedding_provider=embedding_provider,
-            embedding_column=os.getenv("LESSONPACK_SUPABASE_EMBEDDING_COLUMN", "embedding"),
+            embedding_column=embedding_column,
+            embedding_version=embedding_version,
         )
     raise ValueError(f"unsupported vector store: {store_type}")
+
+
+def resolve_embedding_version(*, embedding_column: str, configured_version: str | None = None) -> str:
+    value = (configured_version or "").strip()
+    if value:
+        return value
+    return "v2" if embedding_column == "embedding_v2" else "v1"
 
 
 def _get_required_env(name: str) -> str:
@@ -320,6 +343,7 @@ def _chunk_to_supabase_row(
     embedding: list[float],
     embedding_column: str,
     embedding_model: str,
+    embedding_version: str,
     scope: str,
 ) -> dict[str, Any]:
     row = {
@@ -333,7 +357,7 @@ def _chunk_to_supabase_row(
         "metadata": _external_metadata(chunk.metadata),
         "scope": scope,
         "embedding_model": embedding_model,
-        "embedding_version": "v1",
+        "embedding_version": embedding_version,
         "content_hash": hashlib.sha256(chunk.text.encode("utf-8")).hexdigest(),
     }
     row[embedding_column] = embedding
