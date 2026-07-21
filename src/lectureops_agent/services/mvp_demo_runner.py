@@ -6,13 +6,12 @@ from typing import Any
 
 import yaml
 
-from lectureops_agent.models.schemas import NCSUnit, PackageStatus, ProjectCreate, ReviewPatch
+from lectureops_agent.models.schemas import NCSUnit, ProjectCreate
 from lectureops_agent.services.dataset_loader import DEFAULT_DATASET_PROJECT_ID, load_processed_chunks
 from lectureops_agent.services.export_service import export_lesson_package_docx, export_lesson_package_pptx
 from lectureops_agent.services.generation_evaluation import evaluate_lesson_package, load_generation_gold
 from lectureops_agent.services.generation_service import generate_lesson_package_with_log
 from lectureops_agent.services.llm_provider import LLMProvider, MockLLMProvider
-from lectureops_agent.services.review_service import apply_review_patch
 
 
 def run_mvp_demo(
@@ -56,26 +55,17 @@ def run_mvp_demo(
         expected=case["expected"],
         retrieved_chunk_ids=retrieved_chunk_ids,
     )
-    reviewed = apply_review_patch(
-        result.package,
-        ReviewPatch(status=PackageStatus.REVIEWED, reviewer_notes="MVP demo auto-review passed."),
-    )
-    approved = apply_review_patch(
-        reviewed,
-        ReviewPatch(status=PackageStatus.APPROVED, reviewer_notes="MVP demo package approved for export."),
-    )
-
     docx_path = output_dir / f"{case_id}_lesson_package.docx"
-    export_lesson_package_docx(package=approved, output_path=docx_path)
+    export_lesson_package_docx(package=result.package, output_path=docx_path)
     pptx_path = output_dir / f"{case_id}_lesson_package.pptx"
-    export_lesson_package_pptx(package=approved, output_path=pptx_path)
+    export_lesson_package_pptx(package=result.package, output_path=pptx_path)
 
     report_path = output_dir / f"{case_id}_demo_report.json"
     report = {
         "case_id": case_id,
         "project_id": project.project_id,
-        "package_id": approved.package_id,
-        "package_status": approved.status.value,
+        "package_id": result.package.package_id,
+        "package_status": result.package.status.value,
         "provider_name": result.log.provider_name,
         "retrieved_chunk_ids": retrieved_chunk_ids,
         "evaluation": evaluation,

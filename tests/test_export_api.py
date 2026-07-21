@@ -30,7 +30,7 @@ def create_isolated_test_client() -> TestClient:
 
 
 class ExportApiTests(unittest.TestCase):
-    def test_fastapi_export_docx_requires_approved_package(self):
+    def test_fastapi_generated_package_exports_without_review(self):
         client = create_isolated_test_client()
         created = client.post("/api/projects", json=sample_project_create().model_dump())
         project_id = created.json()["project_id"]
@@ -49,20 +49,7 @@ class ExportApiTests(unittest.TestCase):
             json={"retrieved_chunks": [chunk.model_dump()]},
         )
         package_id = generated.json()["package_id"]
-
-        rejected = client.get(f"/api/packages/{package_id}/export.docx")
-        self.assertEqual(rejected.status_code, 409)
-        rejected_pptx = client.get(f"/api/packages/{package_id}/export.pptx")
-        self.assertEqual(rejected_pptx.status_code, 409)
-
-        client.patch(
-            f"/api/packages/{package_id}/review",
-            json={"status": "reviewed", "reviewer_notes": "Reviewed."},
-        )
-        client.patch(
-            f"/api/packages/{package_id}/review",
-            json={"status": "approved", "reviewer_notes": "Approved."},
-        )
+        self.assertEqual(generated.json()["status"], "generated")
 
         exported = client.get(f"/api/packages/{package_id}/export.docx")
         self.assertEqual(exported.status_code, 200)

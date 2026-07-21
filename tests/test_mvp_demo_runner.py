@@ -31,7 +31,7 @@ class MVPDemoRunnerTests(unittest.TestCase):
                 )
 
             self.assertTrue(report["evaluation"]["passed"], report)
-            self.assertEqual(report["package_status"], "approved")
+            self.assertEqual(report["package_status"], "generated")
             self.assertEqual(report["retrieved_chunk_ids"], ["python-functions-c001", "ncs-demo-c001"])
             self.assertTrue(Path(report["docx_path"]).exists())
             self.assertTrue(Path(report["pptx_path"]).exists())

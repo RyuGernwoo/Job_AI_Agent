@@ -80,6 +80,7 @@ def _inspect_text(text: str) -> dict[str, Any]:
         and not signals["has_inline_citation_labels"]
         and not signals["has_citation_ids_before_evidence"]
         and not signals["has_internal_uuid"]
+        and not signals["has_review_section"]
         and not signals["has_duplicate_labels"]
         and not signals["has_awkward_phrases"]
         and signals["evidence_section_count"] == 1

@@ -18,7 +18,8 @@ from lectureops_agent.models.schemas import (
     MaterialChunk,
     MaterialDocument,
     MaterialIngestResult,
-    PackageEditPatch,
+    PackageRegenerateRequest,
+    PackageRegenerateResponse,
     Project,
     ProjectCreate,
     RAGGenerateRequest,
@@ -27,8 +28,6 @@ from lectureops_agent.models.schemas import (
     RAGRetrieveResponse,
     RetrieveRequest,
     RetrievalRun,
-    ReviewEvent,
-    ReviewPatch,
 )
 from lectureops_agent.services.chunk_service import chunk_text
 from lectureops_agent.services.export_service import (
@@ -49,7 +48,6 @@ from lectureops_agent.services.rag_repository import (
     create_rag_repository_for_vector_store,
 )
 from lectureops_agent.services.rag_service import retrieve_evidence, retrieval_response
-from lectureops_agent.services.review_service import apply_package_edit, apply_review_patch
 from lectureops_agent.services.vector_store import (
     VectorStore,
     create_vector_store_from_config,
@@ -297,36 +295,75 @@ def create_app(
             raise HTTPException(status_code=404, detail="generation log not found")
         return log
 
-    @app.patch("/api/packages/{package_id}", response_model=LessonPackage)
-    def edit_package(package_id: str, payload: PackageEditPatch) -> LessonPackage:
-        package = packages.get(package_id)
-        if package is None:
+    @app.post("/api/packages/{package_id}/regenerate", response_model=PackageRegenerateResponse)
+    def regenerate_package(
+        package_id: str,
+        payload: PackageRegenerateRequest,
+    ) -> PackageRegenerateResponse:
+        source_package = packages.get(package_id)
+        if source_package is None:
             raise HTTPException(status_code=404, detail="package not found")
-        try:
-            updated = apply_package_edit(package, payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        packages[package_id] = updated
-        return updated
+        project = _require_project(rag_repository, source_package.project_id)
+        retrieval_run = _retrieve_for_request(
+            project=project,
+            query=payload.instruction,
+            top_k=payload.top_k or retrieval_top_k,
+            include_baseline=payload.include_baseline,
+            vector_store=vector_store,
+            rag_repository=rag_repository,
+            candidate_k=candidate_k,
+            baseline_project_id=baseline_project_id,
+        )
+        if not retrieval_run.evidence:
+            raise HTTPException(
+                status_code=422,
+                detail="수정 요청을 뒷받침할 검색 근거가 없습니다. 자료를 추가하거나 요청을 구체화하십시오.",
+            )
 
-    @app.patch("/api/packages/{package_id}/review", response_model=LessonPackage)
-    def review_package(package_id: str, payload: ReviewPatch) -> LessonPackage:
-        package = packages.get(package_id)
-        if package is None:
-            raise HTTPException(status_code=404, detail="package not found")
         try:
-            updated = apply_review_patch(package, payload)
+            with llm_trace_context(
+                {
+                    "trace_id": retrieval_run.trace_id,
+                    "retrieval_run_id": retrieval_run.run_id,
+                    "project_id": project.project_id,
+                    "source_package_id": source_package.package_id,
+                }
+            ):
+                result = generate_lesson_package_with_log(
+                    project=project,
+                    retrieved_chunks=[item.chunk for item in retrieval_run.evidence],
+                    llm_provider=llm_provider,
+                    retrieval_run_id=retrieval_run.run_id,
+                    trace_id=retrieval_run.trace_id,
+                    source_package=source_package,
+                    revision_instruction=payload.instruction,
+                )
         except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        packages[package_id] = updated
-        return updated
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    @app.get("/api/packages/{package_id}/review-history", response_model=list[ReviewEvent])
-    def get_review_history(package_id: str) -> list[ReviewEvent]:
-        package = packages.get(package_id)
-        if package is None:
-            raise HTTPException(status_code=404, detail="package not found")
-        return package.review_history
+        packages[result.package.package_id] = result.package
+        generation_logs[result.package.package_id] = result.log
+        try:
+            rag_repository.save_generation_run(
+                GenerationRun(
+                    package_id=result.package.package_id,
+                    project_id=project.project_id,
+                    retrieval_run_id=retrieval_run.run_id,
+                    trace_id=retrieval_run.trace_id,
+                    provider_name=result.log.provider_name,
+                    structured_output_applied=result.log.structured_output_applied,
+                    citation_ids=result.log.citation_ids,
+                    created_at=result.log.created_at,
+                )
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return PackageRegenerateResponse(
+            package=result.package,
+            source_package_id=source_package.package_id,
+            retrieval_run_id=retrieval_run.run_id,
+            trace_id=retrieval_run.trace_id,
+        )
 
     @app.get("/api/packages/{package_id}/export.docx")
     def export_docx(package_id: str) -> FileResponse:

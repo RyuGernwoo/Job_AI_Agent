@@ -18,7 +18,7 @@ from lectureops_agent.services.export_service import (
 from lectureops_agent.services.generation_service import generate_lesson_package
 
 
-def make_package(status: PackageStatus = PackageStatus.APPROVED):
+def make_package(status: PackageStatus = PackageStatus.GENERATED):
     project = ProjectCreate(
         course_title="Generative AI Python Basics",
         lesson_title="Python functions and prompt automation practice",
@@ -46,7 +46,7 @@ def make_package(status: PackageStatus = PackageStatus.APPROVED):
 
 class ExportServiceTests(unittest.TestCase):
     def test_export_lesson_package_docx_writes_readable_document(self):
-        package = make_package(PackageStatus.APPROVED)
+        package = make_package(PackageStatus.GENERATED)
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "lesson_package.docx"
 
@@ -62,19 +62,12 @@ class ExportServiceTests(unittest.TestCase):
             self.assertIn("PSF License", text)
             self.assertIn("NCS 연계", text)
             self.assertNotIn("근거:", text)
+            self.assertNotIn("검수 이력", text)
             self.assertNotIn(package.package_id, text)
             self.assertEqual(text.count("근거 출처"), 1)
 
-    def test_export_lesson_package_docx_rejects_unapproved_package(self):
-        package = make_package(PackageStatus.DRAFT)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = Path(tmpdir) / "draft.docx"
-
-            with self.assertRaises(ValueError):
-                export_lesson_package_docx(package=package, output_path=output_path)
-
     def test_export_lesson_package_pptx_writes_summary_slides(self):
-        package = make_package(PackageStatus.APPROVED)
+        package = make_package(PackageStatus.REGENERATED)
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "lesson_package.pptx"
 
@@ -94,6 +87,7 @@ class ExportServiceTests(unittest.TestCase):
             self.assertIn("근거 출처", slide_text)
             self.assertIn("PSF License", slide_text)
             self.assertNotIn("근거:", slide_text)
+            self.assertNotIn("검수 이력", slide_text)
             self.assertNotIn(package.package_id, slide_text)
             self.assertEqual(presentation.slides[-1].shapes.title.text, "근거 출처")
             for slide in list(presentation.slides)[:-1]:
@@ -102,7 +96,7 @@ class ExportServiceTests(unittest.TestCase):
             self.assertIn(chunk_id, "\n".join(shape.text for shape in presentation.slides[-1].shapes if hasattr(shape, "text")))
 
     def test_build_export_filename_uses_safe_lesson_title(self):
-        package = make_package(PackageStatus.APPROVED)
+        package = make_package(PackageStatus.GENERATED)
         package.lesson_plan.title = 'Python 함수/자료구조: 자동화 실습? "입문"'
 
         docx_name = build_export_filename(package, ".docx")
@@ -111,15 +105,6 @@ class ExportServiceTests(unittest.TestCase):
         self.assertEqual(docx_name, "Python_함수_자료구조_자동화_실습_입문_교안.docx")
         self.assertEqual(pptx_name, "Python_함수_자료구조_자동화_실습_입문_강의자료.pptx")
         self.assertNotIn(package.package_id, docx_name)
-
-    def test_export_lesson_package_pptx_rejects_unapproved_package(self):
-        package = make_package(PackageStatus.DRAFT)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = Path(tmpdir) / "draft.pptx"
-
-            with self.assertRaises(ValueError):
-                export_lesson_package_pptx(package=package, output_path=output_path)
-
 
 if __name__ == "__main__":
     unittest.main()

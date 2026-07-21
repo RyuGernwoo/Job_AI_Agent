@@ -38,7 +38,7 @@ class MockLLMProvider:
             raise ValueError("prompt must not be empty")
         return (
             "Mock provider outline: align lesson plan, practice, and assessment with "
-            "the retrieved evidence and require instructor review before approval."
+            "the retrieved evidence and make the generated package ready for download."
         )
 
 

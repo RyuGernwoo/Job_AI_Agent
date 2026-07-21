@@ -92,16 +92,16 @@ LiteLLM 생성 (OpenAI primary, Gemini fallback)
 Pydantic 구조 검증 + citation allow-list 검증
               |
               v
-HITL 검수 -> 최종 근거 단원 포함 DOCX/PPTX export
+자연어 재생성(선택) -> 최종 근거 단원 포함 DOCX/PPTX export
 ```
 
 ### 3.1 책임 분리
 
 | 계층 | 책임 | 금지 사항 |
 | --- | --- | --- |
-| UI | 질의 입력, 검색 결과 미리보기, 생성 요청, 강사 검수 | 검색 결과를 임의로 조작해 생성 근거로 제출하지 않음 |
+| UI | 질의 입력, 검색 결과 미리보기, 생성·자연어 수정 요청 | 검색 결과를 임의로 조작해 생성 근거로 제출하지 않음 |
 | FastAPI | 프로젝트 확인, 검색 범위 결정, retrieval 실행, 생성 호출, 로그 저장 | 클라이언트가 보낸 임의 chunk를 운영 생성의 근거로 신뢰하지 않음 |
-| RAG service | query 구성, 임베딩, 검색, 재순위화, threshold 적용 | 모델 응답 생성·검수 상태 변경을 담당하지 않음 |
+| RAG service | query 구성, 임베딩, 검색, 재순위화, threshold 적용 | 모델 응답 생성과 패키지 버전 관리를 담당하지 않음 |
 | Supabase | chunk, 문서, 프로젝트, 검색 실행 이력의 영속화 | 서비스 역할 key를 브라우저로 노출하지 않음 |
 | LLM service | 검색 근거를 이용한 구조화 생성과 fallback | 검색되지 않은 출처 ID를 생성하지 않음 |
 
@@ -186,7 +186,7 @@ final_score = 0.75 * vector_similarity + 0.20 * lexical_overlap + 0.05 * project
 ### 4.5 출처·저작권 처리
 
 - `source_name`, `source_url`, `license`, `source_file`, `page`를 chunk metadata 필수값으로 유지한다.
-- 라이선스가 없거나 검수 상태가 `blocked`인 자료는 생성 검색 대상에서 제외한다.
+- 라이선스가 없거나 권리 확인 상태가 `blocked`인 자료는 생성 검색 대상에서 제외한다.
 - 본문에는 citation ID를 반복 노출하지 않고, 실제 사용된 근거만 원천별로 묶어 최종 DOCX/PPTX 근거 단원에 표시한다.
 - Langfuse에는 원문 전체보다 chunk ID, source ID, 점수, 길이, hash를 우선 기록한다. 민감하거나 저작권 제약이 있는 본문은 tracing 입력 마스킹 정책을 적용한다.
 
@@ -264,7 +264,7 @@ generate_from_query()        -> retrieve_evidence -> LLM -> citation 검증 -> g
 | 단위 | query builder, metadata filter, citation allow-list | 전부 통과 |
 | Supabase 통합 | 43개 chunk upsert, scoped RPC, top-k, 프로젝트 격리 | 결과 ID와 scope 일치 |
 | API | `/rag/generate`가 내부 검색 결과만 생성에 사용 | 임의 `retrieved_chunks` 요청 거부 |
-| 회귀 | 기존 `/retrieve`, `/generate`, export, HITL | 전체 테스트 통과 |
+| 회귀 | 기존 `/retrieve`, `/generate`, `/regenerate`, export | 전체 테스트 통과 |
 | 관측성 | retrieval run과 Langfuse trace가 동일 run ID를 가짐 | trace 1개 이상 확인 |
 
 ### 7.2 검색·생성 품질 기준
@@ -306,7 +306,7 @@ generate_from_query()        -> retrieve_evidence -> LLM -> citation 검증 -> g
 2. Langfuse에서 retrieval span, generation span, `retrieval_run_id`를 확인한다.
 3. GCE에 새 환경변수를 반영하고 `/health/rag` 및 semantic retrieval을 재검증한다.
 4. Lovable UI를 `/rag/retrieve`, `/rag/generate` endpoint 계약으로 전환한다.
-5. GCE에 배포한 뒤 Lovable UI에서 업로드 → 검색 미리보기 → 생성 → 검수 → export를 수행한다.
+5. GCE에 배포한 뒤 Lovable UI에서 업로드 → 검색 미리보기 → 생성 → 자연어 수정 → export를 수행한다.
 6. 운영 Supabase에 migration을 적용하고, 배포 후 동일 smoke test를 다시 실행한다.
 
 이 절차가 끝나기 전에는 “Supabase 데이터 저장”과 “운영 RAG 완성”을 같은 의미로 취급하지 않는다. 운영 RAG 완료 판정은 검색·생성·citation·trace가 하나의 retrieval run으로 연결됐을 때만 내린다.

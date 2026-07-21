@@ -9,12 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class PackageStatus(str, Enum):
-    DRAFT = "draft"
-    REVIEWED = "reviewed"
-    APPROVED = "approved"
+    GENERATED = "generated"
     EXPORTED = "exported"
     REGENERATED = "regenerated"
-    NEEDS_REVISION = "needs_revision"
 
 
 class NCSUnit(BaseModel):
@@ -192,28 +189,15 @@ class Assessment(BaseModel):
     performance_task: PerformanceTask
 
 
-class ReviewEvent(BaseModel):
-    event_id: str = Field(min_length=1)
-    package_id: str = Field(min_length=1)
-    from_status: PackageStatus
-    to_status: PackageStatus
-    reviewer_name: str | None = None
-    reviewer_notes: str = Field(min_length=1)
-    changed_fields: list[str] = Field(default_factory=list)
-    created_at: datetime
-
-
 class LessonPackage(BaseModel):
     package_id: str = Field(min_length=1)
     project_id: str = Field(min_length=1)
-    status: PackageStatus = PackageStatus.DRAFT
+    status: PackageStatus = PackageStatus.GENERATED
     lesson_plan: LessonPlan
     practice: Practice
     assessment: Assessment
     evidence_sources: list[CitationDetail] = Field(default_factory=list)
     template_metadata: StandardTemplateMetadata = Field(default_factory=StandardTemplateMetadata)
-    reviewer_notes: str | None = None
-    review_history: list[ReviewEvent] = Field(default_factory=list)
 
 
 class GenerationLog(BaseModel):
@@ -226,6 +210,8 @@ class GenerationLog(BaseModel):
     structured_output_applied: bool = False
     retrieval_run_id: str | None = None
     trace_id: str | None = None
+    source_package_id: str | None = None
+    revision_instruction: str | None = None
     citation_ids: list[str] = Field(min_length=1)
     retrieved_chunk_ids: list[str] = Field(min_length=1)
     created_at: datetime
@@ -241,6 +227,19 @@ class RAGGenerateResponse(BaseModel):
     trace_id: str = Field(min_length=1)
 
 
+class PackageRegenerateRequest(BaseModel):
+    instruction: str = Field(min_length=1)
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    include_baseline: bool = True
+
+
+class PackageRegenerateResponse(BaseModel):
+    package: LessonPackage
+    source_package_id: str = Field(min_length=1)
+    retrieval_run_id: str = Field(min_length=1)
+    trace_id: str = Field(min_length=1)
+
+
 class GenerationRun(BaseModel):
     package_id: str = Field(min_length=1)
     project_id: str = Field(min_length=1)
@@ -250,17 +249,3 @@ class GenerationRun(BaseModel):
     structured_output_applied: bool = False
     citation_ids: list[str] = Field(default_factory=list)
     created_at: datetime
-
-
-class PackageEditPatch(BaseModel):
-    lesson_plan: LessonPlan | None = None
-    practice: Practice | None = None
-    assessment: Assessment | None = None
-    edit_reason: str = Field(min_length=1)
-    reviewer_name: str | None = None
-
-
-class ReviewPatch(BaseModel):
-    status: PackageStatus
-    reviewer_notes: str = Field(min_length=1)
-    reviewer_name: str | None = None

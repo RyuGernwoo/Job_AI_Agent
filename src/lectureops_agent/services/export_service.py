@@ -7,7 +7,7 @@ from pathlib import Path
 from docx import Document
 from pptx import Presentation
 
-from lectureops_agent.models.schemas import CitationDetail, LessonPackage, NCSAlignment, PackageStatus
+from lectureops_agent.models.schemas import CitationDetail, LessonPackage, NCSAlignment
 
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -15,8 +15,6 @@ _FILENAME_SEPARATOR = re.compile(r"[\s_]+")
 
 
 def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> Path:
-    _ensure_exportable(package)
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document = Document()
     document.add_heading(package.lesson_plan.title, level=0)
@@ -65,7 +63,6 @@ def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> 
         document.add_paragraph(_without_label(item, "평가 기준"), style="List Bullet")
     _add_alignment_paragraph(document, task.ncs_alignment)
 
-    _add_review_section(document, package)
     _add_evidence_section(document, package)
 
     document.save(output_path)
@@ -73,8 +70,6 @@ def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> 
 
 
 def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> Path:
-    _ensure_exportable(package)
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
     presentation = Presentation()
 
@@ -135,9 +130,6 @@ def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> 
             ],
         )
 
-    if package.review_history or package.reviewer_notes:
-        _add_bullet_slide(presentation, "검수 이력", _review_bullets(package))
-
     # 근거는 발표 흐름을 방해하지 않도록 마지막 출처 슬라이드에만 표시한다.
     _add_bullet_slide(presentation, "근거 출처", _compact_evidence_bullets(package))
 
@@ -159,28 +151,11 @@ def build_export_filename(package: LessonPackage, extension: str) -> str:
 
 def _add_alignment_paragraph(document: Document, alignments: list[NCSAlignment]) -> None:
     if not alignments:
-        document.add_paragraph("NCS 연계: 강사 검수 단계에서 확인 필요")
+        document.add_paragraph("NCS 연계: 등록된 능력단위 정보 없음")
         return
     for alignment in alignments:
         criteria = "; ".join(alignment.performance_criteria) if alignment.performance_criteria else "수행준거 미기재"
         document.add_paragraph(f"NCS 연계: {alignment.unit_code} {alignment.unit_name} - {criteria}")
-
-
-def _add_review_section(document: Document, package: LessonPackage) -> None:
-    document.add_heading("검수 이력", level=1)
-    if package.reviewer_notes:
-        document.add_paragraph(f"최근 검수 메모: {package.reviewer_notes}")
-    if not package.review_history:
-        document.add_paragraph("저장된 검수 이력이 없습니다.")
-        return
-    for event in package.review_history:
-        changed = ", ".join(event.changed_fields) if event.changed_fields else "status"
-        reviewer = event.reviewer_name or "미기재"
-        document.add_paragraph(
-            f"{event.created_at.isoformat()} | {event.from_status.value} -> {event.to_status.value} | "
-            f"검수자: {reviewer} | 변경: {changed} | 메모: {event.reviewer_notes}",
-            style="List Bullet",
-        )
 
 
 def _add_evidence_section(document: Document, package: LessonPackage) -> None:
@@ -227,20 +202,8 @@ def _evidence_details(package: LessonPackage) -> list[CitationDetail]:
 
 def _alignment_bullets(alignments: list[NCSAlignment]) -> list[str]:
     if not alignments:
-        return ["NCS 연계: 강사 검수 단계에서 확인 필요"]
+        return ["NCS 연계: 등록된 능력단위 정보 없음"]
     return [f"NCS 연계: {alignment.unit_code} {alignment.unit_name}" for alignment in alignments]
-
-
-def _review_bullets(package: LessonPackage) -> list[str]:
-    bullets: list[str] = []
-    if package.reviewer_notes:
-        bullets.append(f"최근 검수 메모: {package.reviewer_notes}")
-    for event in package.review_history[-5:]:
-        reviewer = event.reviewer_name or "미기재"
-        bullets.append(
-            f"{event.from_status.value} -> {event.to_status.value} / 검수자: {reviewer} / 메모: {event.reviewer_notes}"
-        )
-    return bullets or ["검수 이력 없음"]
 
 
 def _compact_evidence_bullets(package: LessonPackage) -> list[str]:
@@ -282,11 +245,6 @@ def _without_label(value: str, label: str) -> str:
     if normalized.startswith(prefix):
         return normalized[len(prefix) :].strip()
     return normalized
-
-
-def _ensure_exportable(package: LessonPackage) -> None:
-    if package.status != PackageStatus.APPROVED:
-        raise ValueError("only approved packages can be exported")
 
 
 def _add_bullet_slide(presentation: Presentation, title: str, bullets: list[str]) -> None:

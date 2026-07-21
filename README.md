@@ -1,8 +1,8 @@
 # LessonPack AI
 
-직업훈련 강사가 교안, 실습 과제, 평가 문항 초안을 빠르게 만들고 검수한 뒤 DOCX/PPTX로 내려받을 수 있도록 돕는 AI 서비스 MVP입니다.
+직업훈련 강사가 교안, 실습 과제, 평가 문항을 빠르게 만들고 DOCX/PPTX로 내려받을 수 있도록 돕는 AI 서비스 MVP입니다.
 
-LessonPack AI는 강사를 대체하는 서비스가 아닙니다. 교재와 NCS 근거를 바탕으로 “검수 가능한 초안”을 만들고, 최종 판단과 수정은 강사가 수행하는 흐름을 전제로 합니다.
+LessonPack AI는 교재와 NCS 근거를 바탕으로 강의 패키지를 생성합니다. 사용자는 자연어로 수정할 내용을 입력해 새 버전을 만들거나, 생성 직후 파일을 내려받을 수 있습니다.
 
 ## 일반 사용자를 위한 안내
 
@@ -22,7 +22,7 @@ LessonPack AI는 직업훈련 강의 준비에 필요한 산출물을 한 번에
 - 새 차시의 강의안을 빠르게 초안화해야 할 때
 - 교재 내용과 NCS 능력단위를 함께 반영해야 할 때
 - 실습과 평가 문항을 같은 수업 목표에 맞춰 구성해야 할 때
-- AI가 만든 결과를 바로 쓰기보다, 강사가 검수할 초안이 필요할 때
+- 생성 결과의 난이도, 표현, 실습 구성을 자연어로 조정하고 싶을 때
 
 ### 사용 흐름
 
@@ -30,8 +30,8 @@ LessonPack AI는 직업훈련 강의 준비에 필요한 산출물을 한 번에
 2. 수업에 사용할 교재 파일이나 텍스트 자료를 업로드합니다.
 3. 서비스가 관련 근거 문단을 검색합니다.
 4. 검색 근거를 바탕으로 교안, 실습, 평가 초안을 생성합니다.
-5. 강사가 내용을 검토하고 수정한 뒤 승인합니다.
-6. 승인된 강의 패키지를 DOCX 또는 PPTX로 내려받습니다.
+5. 필요한 경우 자연어로 수정 사항을 입력해 새 패키지를 생성합니다.
+6. 생성된 강의 패키지를 DOCX 또는 PPTX로 내려받습니다.
 
 ### 사용자가 준비할 것
 
@@ -51,8 +51,8 @@ LessonPack AI는 직업훈련 강의 준비에 필요한 산출물을 한 번에
 
 - FastAPI API 서버
 - Lovable 기반 웹 UI 연동
-- 프로젝트 생성, 자료 업로드, chunking, 검색, 생성, 검수, export API
-- NCS 연계, 검수 이력, 마지막 단원에 통합된 근거 출처가 포함된 DOCX/PPTX 산출물 생성
+- 프로젝트 생성, 자료 업로드, chunking, 검색, 생성, 자연어 재생성, export API
+- NCS 연계와 마지막 단원에 통합된 근거 출처가 포함된 DOCX/PPTX 산출물 생성
 - 수업 제목 기반의 짧은 다운로드 파일명과 구조화 LLM JSON 검증·fallback 처리
 - LiteLLM 기반 LLM provider
 - OpenAI primary 모델과 Gemini fallback 모델 설정
@@ -74,7 +74,7 @@ LessonPack AI는 직업훈련 강의 준비에 필요한 산출물을 한 번에
 | Vector Store | Supabase Postgres + pgvector |
 | Export | python-docx, python-pptx |
 | 배포 | Docker, Docker Compose, GCE, GitHub Actions, GHCR |
-| 테스트 | unittest, 자체 retrieval/generation 검증 스크립트 |
+| 테스트 | pytest/unittest, 자체 retrieval/generation 검증 스크립트 |
 
 ### 로컬 실행
 
@@ -155,7 +155,7 @@ python scripts\check_rag_readiness.py --check-schema --query "Python 함수 retu
 
 ```powershell
 python -m compileall src scripts tests
-python -m unittest discover -s tests
+python -m pytest -q
 python scripts\check_llm_provider.py --config config.example.yaml
 python scripts\run_mvp_demo.py --provider mock --output-dir outputs\demo
 python scripts\run_mvp_verification.py --output-dir outputs\eval --demo-case-id g003
@@ -174,12 +174,10 @@ python scripts\inspect_export_quality.py --docx outputs\demo\g003_lesson_package
 | POST | `/api/projects/{project_id}/materials` | 교재 업로드 및 chunk 생성 |
 | POST | `/api/projects/{project_id}/rag/retrieve` | 서버 주도 프로젝트·baseline 근거 검색 |
 | POST | `/api/projects/{project_id}/rag/generate` | 검색과 생성이 연결된 강의 패키지 생성 |
+| POST | `/api/packages/{package_id}/regenerate` | 기존 패키지와 자연어 지시를 기반으로 새 패키지 생성 |
 | GET | `/api/retrieval-runs/{run_id}` | 검색 질의·점수·선택 근거 조회 |
 | POST | `/api/projects/{project_id}/retrieve` | 호환용 프로젝트 근거 검색 |
 | POST | `/api/projects/{project_id}/generate` | 호환용 chunk 직접 전달 생성 |
-| PATCH | `/api/packages/{package_id}` | 교안·실습·평가 본문 수정 |
-| PATCH | `/api/packages/{package_id}/review` | 검수 상태 변경 |
-| GET | `/api/packages/{package_id}/review-history` | 검수 이력 조회 |
 | GET | `/api/packages/{package_id}/export.docx` | DOCX 다운로드 |
 | GET | `/api/packages/{package_id}/export.pptx` | PPTX 다운로드 |
 | GET | `/api/packages/{package_id}/generation-log` | 생성 로그 조회 |
@@ -191,6 +189,7 @@ python scripts\inspect_export_quality.py --docx outputs\demo\g003_lesson_package
 - [구현명세서](docs/02_implementation-readiness/01_구현명세서.md)
 - [데이터셋 운영 문서](data/README_DATASET.md)
 - [RAG 구축 및 연동 기획서](docs/02_implementation-readiness/07_RAG_구축_연동_기획서.md)
+- [자연어 패키지 재생성 구현서](docs/02_implementation-readiness/08_자연어_패키지_재생성_구현서.md)
 - [검증 프로토콜](docs/02_implementation-readiness/03_검증_프로토콜.md)
 - [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
 
