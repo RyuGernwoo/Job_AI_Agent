@@ -211,6 +211,7 @@ jobs:
           LESSONPACK_LITELLM_MODEL: ${{ secrets.LESSONPACK_LITELLM_MODEL || 'gpt-4o-mini' }}
           LESSONPACK_LITELLM_FALLBACK_MODELS: ${{ secrets.LESSONPACK_LITELLM_FALLBACK_MODELS || 'gemini/gemini-2.0-flash' }}
           LESSONPACK_LITELLM_CALLBACKS: ${{ secrets.LESSONPACK_LITELLM_CALLBACKS || 'langfuse_otel' }}
+          LESSONPACK_MIN_FREE_DISK_KB: ${{ secrets.LESSONPACK_MIN_FREE_DISK_KB || '1048576' }}
         run: |
           set -euo pipefail
 
@@ -228,7 +229,7 @@ jobs:
           ssh_target="${GCE_USERNAME}@${GCE_HOST}"
 
           ssh -i "$HOME/.ssh/lessonpack-ai" "$ssh_target" \
-            "DEPLOY_DIR='$deploy_dir' DEPLOY_IMAGE='$DEPLOY_IMAGE' DEPLOY_MODE='$DEPLOY_MODE' GHCR_TOKEN_B64='$ghcr_token_b64' GHCR_USERNAME='$GHCR_USERNAME' LANGFUSE_OTEL_HOST_B64='$langfuse_otel_host_b64' LANGFUSE_PUBLIC_KEY_B64='$langfuse_public_key_b64' LANGFUSE_SECRET_KEY_B64='$langfuse_secret_key_b64' GEMINI_API_KEY_B64='$gemini_api_key_b64' OPENAI_API_KEY_B64='$openai_api_key_b64' REGISTRY='$REGISTRY' SERVICE_PORT='$SERVICE_PORT' LESSONPACK_CORS_ALLOW_ORIGINS='$LESSONPACK_CORS_ALLOW_ORIGINS' LESSONPACK_CORS_ALLOW_CREDENTIALS='$LESSONPACK_CORS_ALLOW_CREDENTIALS' LESSONPACK_PUBLIC_API_HOST='$LESSONPACK_PUBLIC_API_HOST' SUPABASE_SERVICE_ROLE_KEY_B64='$supabase_service_role_key_b64' SUPABASE_URL_B64='$supabase_url_b64' LESSONPACK_SUPABASE_TABLE='$LESSONPACK_SUPABASE_TABLE' LESSONPACK_SUPABASE_MATCH_FUNCTION='$LESSONPACK_SUPABASE_MATCH_FUNCTION' LESSONPACK_SUPABASE_MATCH_THRESHOLD='$LESSONPACK_SUPABASE_MATCH_THRESHOLD' LESSONPACK_BASELINE_PROJECT_ID='$LESSONPACK_BASELINE_PROJECT_ID' LESSONPACK_RETRIEVAL_CANDIDATE_K='$LESSONPACK_RETRIEVAL_CANDIDATE_K' LESSONPACK_RETRIEVAL_TOP_K='$LESSONPACK_RETRIEVAL_TOP_K' LESSONPACK_EMBEDDING_PROVIDER='$LESSONPACK_EMBEDDING_PROVIDER' LESSONPACK_EMBEDDING_MODEL='$LESSONPACK_EMBEDDING_MODEL' LESSONPACK_EMBEDDING_DIMENSIONS='$LESSONPACK_EMBEDDING_DIMENSIONS' LESSONPACK_SUPABASE_EMBEDDING_COLUMN='$LESSONPACK_SUPABASE_EMBEDDING_COLUMN' LESSONPACK_EMBEDDING_VERSION='$LESSONPACK_EMBEDDING_VERSION' LESSONPACK_LITELLM_MODEL='$LESSONPACK_LITELLM_MODEL' LESSONPACK_LITELLM_FALLBACK_MODELS='$LESSONPACK_LITELLM_FALLBACK_MODELS' LESSONPACK_LITELLM_CALLBACKS='$LESSONPACK_LITELLM_CALLBACKS' bash -s" <<'REMOTE'
+            "DEPLOY_DIR='$deploy_dir' DEPLOY_IMAGE='$DEPLOY_IMAGE' DEPLOY_MODE='$DEPLOY_MODE' GHCR_TOKEN_B64='$ghcr_token_b64' GHCR_USERNAME='$GHCR_USERNAME' LANGFUSE_OTEL_HOST_B64='$langfuse_otel_host_b64' LANGFUSE_PUBLIC_KEY_B64='$langfuse_public_key_b64' LANGFUSE_SECRET_KEY_B64='$langfuse_secret_key_b64' GEMINI_API_KEY_B64='$gemini_api_key_b64' OPENAI_API_KEY_B64='$openai_api_key_b64' REGISTRY='$REGISTRY' SERVICE_PORT='$SERVICE_PORT' LESSONPACK_CORS_ALLOW_ORIGINS='$LESSONPACK_CORS_ALLOW_ORIGINS' LESSONPACK_CORS_ALLOW_CREDENTIALS='$LESSONPACK_CORS_ALLOW_CREDENTIALS' LESSONPACK_PUBLIC_API_HOST='$LESSONPACK_PUBLIC_API_HOST' SUPABASE_SERVICE_ROLE_KEY_B64='$supabase_service_role_key_b64' SUPABASE_URL_B64='$supabase_url_b64' LESSONPACK_SUPABASE_TABLE='$LESSONPACK_SUPABASE_TABLE' LESSONPACK_SUPABASE_MATCH_FUNCTION='$LESSONPACK_SUPABASE_MATCH_FUNCTION' LESSONPACK_SUPABASE_MATCH_THRESHOLD='$LESSONPACK_SUPABASE_MATCH_THRESHOLD' LESSONPACK_BASELINE_PROJECT_ID='$LESSONPACK_BASELINE_PROJECT_ID' LESSONPACK_RETRIEVAL_CANDIDATE_K='$LESSONPACK_RETRIEVAL_CANDIDATE_K' LESSONPACK_RETRIEVAL_TOP_K='$LESSONPACK_RETRIEVAL_TOP_K' LESSONPACK_EMBEDDING_PROVIDER='$LESSONPACK_EMBEDDING_PROVIDER' LESSONPACK_EMBEDDING_MODEL='$LESSONPACK_EMBEDDING_MODEL' LESSONPACK_EMBEDDING_DIMENSIONS='$LESSONPACK_EMBEDDING_DIMENSIONS' LESSONPACK_SUPABASE_EMBEDDING_COLUMN='$LESSONPACK_SUPABASE_EMBEDDING_COLUMN' LESSONPACK_EMBEDDING_VERSION='$LESSONPACK_EMBEDDING_VERSION' LESSONPACK_LITELLM_MODEL='$LESSONPACK_LITELLM_MODEL' LESSONPACK_LITELLM_FALLBACK_MODELS='$LESSONPACK_LITELLM_FALLBACK_MODELS' LESSONPACK_LITELLM_CALLBACKS='$LESSONPACK_LITELLM_CALLBACKS' LESSONPACK_MIN_FREE_DISK_KB='$LESSONPACK_MIN_FREE_DISK_KB' bash -s" <<'REMOTE'
           set -euo pipefail
 
           decode() { printf '%s' "$1" | base64 -d; }
@@ -372,6 +373,37 @@ jobs:
             return 1
           }
 
+          cleanup_docker_storage() {
+            echo "Docker storage before cleanup:"
+            docker system df || true
+            docker container prune --force || true
+            docker image prune --all --force || true
+            docker builder prune --all --force || true
+            echo "Docker storage after cleanup:"
+            docker system df || true
+          }
+
+          ensure_free_disk() {
+            local storage_path="/var/lib/containerd"
+            local available_kb
+
+            if [ ! -d "$storage_path" ]; then
+              storage_path="/var/lib/docker"
+            fi
+
+            available_kb="$(df -Pk "$storage_path" | awk 'NR == 2 { print $4 }')"
+            if [ -z "$available_kb" ]; then
+              echo "Could not determine available disk space for $storage_path."
+              exit 1
+            fi
+
+            echo "Available disk space for $storage_path: ${available_kb}KB (minimum: ${LESSONPACK_MIN_FREE_DISK_KB}KB)"
+            if [ "$available_kb" -lt "$LESSONPACK_MIN_FREE_DISK_KB" ]; then
+              echo "Insufficient disk space after Docker cleanup. Expand the GCE boot disk or remove non-LessonPack data before retrying."
+              exit 1
+            fi
+          }
+
           mkdir -p "$DEPLOY_DIR"
           cd "$DEPLOY_DIR"
 
@@ -396,6 +428,8 @@ jobs:
           write_compose
           write_env "$DEPLOY_IMAGE"
 
+          cleanup_docker_storage
+          ensure_free_disk
           docker pull "$DEPLOY_IMAGE"
           docker compose up -d --force-recreate
 
@@ -404,6 +438,7 @@ jobs:
               printf '%s\n' "$old_image" > .previous_image
             fi
             printf '%s\n' "$DEPLOY_IMAGE" > .current_image
+            cleanup_docker_storage
             docker compose ps
           else
             echo "Health check failed for $DEPLOY_IMAGE."
