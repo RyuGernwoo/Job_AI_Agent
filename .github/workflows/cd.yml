@@ -209,7 +209,7 @@ jobs:
           LESSONPACK_SUPABASE_EMBEDDING_COLUMN: embedding_v2
           LESSONPACK_EMBEDDING_VERSION: v2
           LESSONPACK_LITELLM_MODEL: ${{ secrets.LESSONPACK_LITELLM_MODEL || 'gpt-4o-mini' }}
-          LESSONPACK_LITELLM_FALLBACK_MODELS: ${{ secrets.LESSONPACK_LITELLM_FALLBACK_MODELS || 'gemini/gemini-2.0-flash' }}
+          LESSONPACK_LITELLM_FALLBACK_MODELS: ${{ secrets.LESSONPACK_LITELLM_FALLBACK_MODELS || 'gemini/gemini-3.5-flash' }}
           LESSONPACK_LITELLM_CALLBACKS: ${{ secrets.LESSONPACK_LITELLM_CALLBACKS || 'langfuse_otel' }}
           LESSONPACK_MIN_FREE_DISK_KB: ${{ secrets.LESSONPACK_MIN_FREE_DISK_KB || '1048576' }}
         run: |
@@ -271,6 +271,7 @@ jobs:
               printf 'LESSONPACK_LANGFUSE_TRACE_NAME=lessonpack-ai-mvp\n'
               printf 'LESSONPACK_LANGFUSE_GENERATION_NAME=lessonpack-ai-generation\n'
               printf 'LESSONPACK_LANGFUSE_SESSION_ID=lessonpack-ai-production\n'
+              printf 'LESSONPACK_LANGFUSE_CAPTURE_CONTENT=false\n'
               printf 'LESSONPACK_LANGFUSE_FLUSH_WAIT_SECONDS=1.0\n'
               printf 'LITELLM_LOG=INFO\n'
               printf 'LECTUREOPS_VECTOR_STORE=supabase\n'

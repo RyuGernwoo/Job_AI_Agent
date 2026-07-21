@@ -7,7 +7,7 @@ llm:
   provider: litellm
   model: gpt-4o-mini
   fallback_models:
-    - gemini/gemini-2.0-flash
+    - gemini/gemini-3.5-flash
   timeout_seconds: 30
   callbacks:
     - langfuse_otel

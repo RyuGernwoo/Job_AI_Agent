@@ -101,7 +101,7 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
                         "  provider: litellm",
                         "  model: gpt-4o-mini",
                         "  fallback_models:",
-                        "    - gemini/gemini-2.0-flash",
+                        "    - gemini/gemini-3.5-flash",
                         "  timeout_seconds: 30",
                         "  callbacks:",
                         "    - langfuse_otel",
@@ -116,7 +116,7 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
 
         self.assertEqual(config.llm.provider, "litellm")
         self.assertEqual(config.llm.model, "gpt-4o-mini")
-        self.assertEqual(config.llm.fallback_models, ["gemini/gemini-2.0-flash"])
+        self.assertEqual(config.llm.fallback_models, ["gemini/gemini-3.5-flash"])
         self.assertEqual(config.llm.callbacks, ["langfuse_otel"])
 
     def test_create_app_uses_configured_chunk_size_for_uploads(self):
@@ -180,7 +180,7 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
                 "llm": {
                     "provider": "litellm",
                     "model": "gpt-4o-mini",
-                    "fallback_models": ["gemini/gemini-2.0-flash"],
+                    "fallback_models": ["gemini/gemini-3.5-flash"],
                     "timeout_seconds": 30,
                     "callbacks": ["langfuse_otel"],
                 },
@@ -192,7 +192,7 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
 
         self.assertIsInstance(provider, LiteLLMProvider)
         self.assertEqual(provider.model, "gpt-4o-mini")
-        self.assertEqual(provider.fallback_models, ["gemini/gemini-2.0-flash"])
+        self.assertEqual(provider.fallback_models, ["gemini/gemini-3.5-flash"])
         self.assertEqual(provider.callbacks, ["langfuse_otel"])
         self.assertEqual(provider.schema_retries, 1)
 

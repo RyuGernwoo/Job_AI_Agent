@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from lectureops_agent.env import load_env_file
-from lectureops_agent.services.langfuse_tracing import flush_langfuse_otel
+from lectureops_agent.services.langfuse_tracing import flush_langfuse_otel, redact_trace_error_message
 from lectureops_agent.services.llm_provider import create_llm_provider_from_env
 from lectureops_agent.services.llm_provider_readiness import check_llm_provider_readiness
 
@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
             "response_preview": response[:160],
         }
     except Exception as exc:  # noqa: BLE001 - diagnostic CLI boundary.
-        report["llm_call"] = {"ok": False, "error": str(exc)}
+        report["llm_call"] = {"ok": False, "error": redact_trace_error_message(str(exc))}
         _write_report(report, args.output)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 1
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     report["langfuse_query"] = query_result
     _write_report(report, args.output)
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if query_result["detected"] else 1
+    return 0 if query_result.get("detected") and query_result.get("rich_fields_complete") else 1
 
 
 def _poll_langfuse_trace(
@@ -108,7 +108,7 @@ def _poll_langfuse_trace(
             if trace_data:
                 return _detected_result(
                     attempts=attempts,
-                    observation_count=len(trace_data),
+                    observations=trace_data,
                     api="observations_v2_trace_id",
                 )
 
@@ -121,7 +121,7 @@ def _poll_langfuse_trace(
             if matches:
                 return _detected_result(
                     attempts=attempts,
-                    observation_count=len(matches),
+                    observations=matches,
                     api="observations_v2_recent_marker",
                 )
         except Exception as exc:  # noqa: BLE001 - keep polling with last diagnostic.
@@ -140,13 +140,54 @@ def _poll_langfuse_trace(
         time.sleep(max(1, poll_interval))
 
 
-def _detected_result(*, attempts: int, observation_count: int, api: str) -> dict[str, Any]:
+def _detected_result(*, attempts: int, observations: list[dict[str, Any]], api: str) -> dict[str, Any]:
+    observation = next(
+        (row for row in observations if str(row.get("type", "")).upper() == "GENERATION"),
+        observations[0],
+    )
+    usage = observation.get("usageDetails") or {}
+    cost = observation.get("costDetails") or {}
+    observation_metadata = observation.get("metadata") or {}
+    model = (
+        observation.get("providedModelName")
+        or observation_metadata.get("attributes.langfuse.observation.model.name")
+        or observation_metadata.get("attributes.gen_ai.response.model")
+        or observation_metadata.get("attributes.gen_ai.request.model")
+    )
+    summary = {
+        "observation_id": observation.get("id"),
+        "trace_id": observation.get("traceId"),
+        "name": observation.get("name"),
+        "trace_name": observation.get("traceName"),
+        "type": observation.get("type"),
+        "session_id": observation.get("sessionId"),
+        "model": model,
+        "model_mapping": "providedModelName" if observation.get("providedModelName") else "otel_metadata",
+        "latency_seconds": observation.get("latency"),
+        "input_present": observation.get("input") is not None,
+        "output_present": observation.get("output") is not None,
+        "usage_details": usage,
+        "cost_details": cost,
+    }
+    checks = {
+        "generation_type": str(summary["type"]).upper() == "GENERATION",
+        "trace_name": bool(summary["trace_name"]),
+        "input": summary["input_present"],
+        "output": summary["output_present"],
+        "model": bool(summary["model"]),
+        "latency": isinstance(summary["latency_seconds"], (int, float)) and summary["latency_seconds"] > 0,
+        "usage": isinstance(usage.get("total"), (int, float)) and usage["total"] > 0,
+        "cost": isinstance(cost.get("total"), (int, float)) and cost["total"] >= 0,
+    }
     return {
         "detected": True,
         "attempts": attempts,
-        "observation_count": observation_count,
+        "observation_count": len(observations),
         "api": api,
         "host": _langfuse_host(),
+        "rich_fields_complete": all(checks.values()),
+        "quality_checks": checks,
+        "observation": summary,
     }
 
 
@@ -156,7 +197,7 @@ def _query_observations(*, trace_id: str | None = None) -> dict[str, Any]:
         "fromStartTime": (now - timedelta(minutes=20)).isoformat(),
         "toStartTime": (now + timedelta(minutes=5)).isoformat(),
         "limit": "100",
-        "fields": "core,basic,usage",
+        "fields": "core,basic,time,io,metadata,model,usage,metrics,trace_context",
     }
     if trace_id:
         query["traceId"] = trace_id

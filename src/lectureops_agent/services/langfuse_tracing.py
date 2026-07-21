@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, MutableMapping, Sequence
 
@@ -70,9 +72,15 @@ def record_langfuse_llm_span(
     provider_name: str,
     model: str,
     fallback_models: Sequence[str],
-    prompt: str,
-    response_text: str,
+    input_payload: Any,
+    response: Any | None,
+    response_text: str | None,
     metadata: dict[str, Any],
+    started_at_ns: int,
+    ended_at_ns: int,
+    model_parameters: dict[str, Any] | None = None,
+    response_cost: float | None = None,
+    error: BaseException | None = None,
 ) -> bool:
     config = configure_langfuse_otel_env(callbacks)
     if not config.enabled or not config.endpoint or not config.headers_configured:
@@ -84,22 +92,75 @@ def record_langfuse_llm_span(
 
     tracer = tracer_provider.get_tracer("lessonpack-ai")
     span_name = str(metadata.get("generation_name") or "lessonpack-ai-generation")
-    with tracer.start_as_current_span(span_name) as span:
+    span = tracer.start_span(span_name, start_time=started_at_ns)
+    try:
+        environment = os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or "development"
+        actual_model = _response_field(response, "model") or model
+        trace_name = str(metadata.get("trace_name") or "lessonpack-ai-mvp")
+        session_id = metadata.get("session_id")
+        tags = [str(tag) for tag in metadata.get("tags") or []]
+
         span.set_attribute("service.name", os.getenv("OTEL_SERVICE_NAME", "lessonpack-ai"))
-        span.set_attribute("deployment.environment", os.getenv("APP_ENV", "development"))
+        span.set_attribute("deployment.environment", environment)
         span.set_attribute("gen_ai.system", "litellm")
         span.set_attribute("gen_ai.request.model", model)
+        span.set_attribute("gen_ai.response.model", str(actual_model))
+        span.set_attribute("llm.model_name", str(actual_model))
+        span.set_attribute("model", str(actual_model))
         span.set_attribute("llm.provider_name", provider_name)
         span.set_attribute("llm.fallback_models", ",".join(fallback_models))
-        span.set_attribute("llm.prompt.length", len(prompt))
-        span.set_attribute("llm.response.length", len(response_text))
-        for key in ("trace_name", "trace_id", "session_id", "generation_name"):
-            value = metadata.get(key)
-            if value:
-                span.set_attribute(f"langfuse.{key}", str(value))
-        tags = metadata.get("tags") or []
+        span.set_attribute("langfuse.observation.type", "generation")
+        span.set_attribute("langfuse.observation.model.name", str(actual_model))
+        span.set_attribute("langfuse.trace.name", trace_name)
+        span.set_attribute("langfuse.environment", environment)
+        if session_id:
+            span.set_attribute("langfuse.session.id", str(session_id))
         if tags:
-            span.set_attribute("langfuse.tags", ",".join(str(tag) for tag in tags))
+            span.set_attribute("langfuse.trace.tags", tags)
+
+        parameters = model_parameters or {}
+        if parameters:
+            span.set_attribute(
+                "langfuse.observation.model.parameters",
+                _json_attribute(parameters),
+            )
+
+        input_value, output_value = _safe_io_values(input_payload, response_text)
+        span.set_attribute("langfuse.observation.input", _json_attribute(input_value))
+        span.set_attribute("langfuse.trace.input", _json_attribute(input_value))
+        span.set_attribute("langfuse.observation.output", _json_attribute(output_value))
+        span.set_attribute("langfuse.trace.output", _json_attribute(output_value))
+
+        span.set_attribute("llm.prompt.length", len(_json_attribute(input_payload)))
+        span.set_attribute("llm.response.length", len(response_text or ""))
+
+        usage_details = _extract_usage_details(response)
+        if usage_details:
+            span.set_attribute(
+                "langfuse.observation.usage_details",
+                _json_attribute(usage_details),
+            )
+        if response_cost is not None and response_cost >= 0:
+            span.set_attribute(
+                "langfuse.observation.cost_details",
+                _json_attribute({"total": response_cost}),
+            )
+            span.set_attribute("gen_ai.usage.cost", response_cost)
+
+        _set_filterable_metadata(
+            span,
+            metadata=metadata,
+            provider_name=provider_name,
+            fallback_models=fallback_models,
+        )
+        if error is not None:
+            safe_error = RuntimeError(redact_trace_error_message(str(error)))
+            span.record_exception(safe_error, timestamp=ended_at_ns)
+            span.set_attribute("langfuse.observation.level", "ERROR")
+            span.set_attribute("langfuse.observation.status_message", str(safe_error))
+            _set_error_status(span, safe_error)
+    finally:
+        span.end(end_time=max(started_at_ns + 1, ended_at_ns))
     return True
 
 
@@ -215,3 +276,131 @@ def _parse_otel_headers(value: str) -> dict[str, str]:
         if key:
             headers[key] = header_value.strip()
     return headers
+
+
+def _safe_io_values(input_payload: Any, response_text: str | None) -> tuple[Any, Any]:
+    if _capture_content_enabled():
+        return input_payload, {"content": response_text} if response_text is not None else None
+    return (
+        {
+            "content_capture": "redacted",
+            "message_count": len(input_payload) if isinstance(input_payload, list) else None,
+            "prompt_characters": len(_json_attribute(input_payload)),
+        },
+        {
+            "content_capture": "redacted",
+            "response_characters": len(response_text or ""),
+            "status": "completed" if response_text is not None else "failed",
+        },
+    )
+
+
+def _capture_content_enabled() -> bool:
+    value = os.getenv("LESSONPACK_LANGFUSE_CAPTURE_CONTENT", "false").strip().casefold()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _json_attribute(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _response_field(response: Any | None, name: str) -> Any | None:
+    if response is None:
+        return None
+    if isinstance(response, dict):
+        return response.get(name)
+    return getattr(response, name, None)
+
+
+def _extract_usage_details(response: Any | None) -> dict[str, Any]:
+    usage = _response_field(response, "usage")
+    if usage is None:
+        return {}
+    if hasattr(usage, "model_dump"):
+        usage = usage.model_dump(exclude_none=True)
+    elif not isinstance(usage, dict):
+        usage = {
+            key: getattr(usage, key, None)
+            for key in (
+                "prompt_tokens",
+                "completion_tokens",
+                "total_tokens",
+                "prompt_tokens_details",
+                "completion_tokens_details",
+            )
+        }
+    if not isinstance(usage, dict):
+        return {}
+
+    allowed_keys = (
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "prompt_tokens_details",
+        "completion_tokens_details",
+    )
+    return {
+        key: _json_compatible(usage[key])
+        for key in allowed_keys
+        if usage.get(key) is not None
+    }
+
+
+def _json_compatible(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(exclude_none=True)
+    if isinstance(value, dict):
+        return {key: _json_compatible(item) for key, item in value.items() if item is not None}
+    if isinstance(value, (list, tuple)):
+        return [_json_compatible(item) for item in value]
+    return value
+
+
+def _set_filterable_metadata(
+    span: Any,
+    *,
+    metadata: dict[str, Any],
+    provider_name: str,
+    fallback_models: Sequence[str],
+) -> None:
+    span.set_attribute("langfuse.observation.metadata.provider_name", provider_name)
+    if fallback_models:
+        span.set_attribute(
+            "langfuse.observation.metadata.fallback_models",
+            ",".join(fallback_models),
+        )
+    ignored = {"generation_name", "trace_name", "session_id", "tags"}
+    for key, value in metadata.items():
+        if key in ignored or value is None:
+            continue
+        attribute_key = "".join(char if char.isalnum() or char in "_-" else "_" for char in str(key))
+        if isinstance(value, (str, bool, int, float)):
+            span.set_attribute(f"langfuse.observation.metadata.{attribute_key}", value)
+        else:
+            span.set_attribute(
+                f"langfuse.observation.metadata.{attribute_key}",
+                _json_attribute(value),
+            )
+
+
+def _set_error_status(span: Any, error: BaseException) -> None:
+    try:
+        from opentelemetry.trace import Status, StatusCode
+    except ModuleNotFoundError:
+        return
+    span.set_status(Status(StatusCode.ERROR, str(error)))
+
+
+def redact_trace_error_message(message: str) -> str:
+    redacted = re.sub(r"(?i)([?&](?:key|api_key|token)=)[^&\s]+", r"\1[REDACTED]", message)
+    for env_name in (
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_SECRET_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+    ):
+        secret = os.getenv(env_name, "")
+        if secret:
+            redacted = redacted.replace(secret, "[REDACTED]")
+    return redacted

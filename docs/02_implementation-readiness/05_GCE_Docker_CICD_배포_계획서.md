@@ -240,8 +240,9 @@ GCE 배포와 운영 실행에 필요한 값을 GitHub Repository Secrets에 등
 | `LESSONPACK_CONFIG` | 선택 | 서버에서 config 파일을 쓸 경우 `config.yaml` |
 | `LESSONPACK_LLM_PROVIDER` | 선택 | env-only fallback, 기본 `litellm` |
 | `LESSONPACK_LITELLM_MODEL` | 선택 | 기본 `gpt-4o-mini` |
-| `LESSONPACK_LITELLM_FALLBACK_MODELS` | 선택 | 기본 `gemini/gemini-2.0-flash` |
+| `LESSONPACK_LITELLM_FALLBACK_MODELS` | 선택 | 기본 `gemini/gemini-3.5-flash` |
 | `LESSONPACK_LITELLM_CALLBACKS` | 선택 | 기본 `langfuse_otel` |
+| `LESSONPACK_LANGFUSE_CAPTURE_CONTENT` | 선택 | 기본 `false`. 원문 대신 길이·상태 요약을 기록하며, 외부 전송 승인을 받은 경우에만 `true` |
 
 `GITHUB_TOKEN`은 GitHub Actions가 자동 제공하므로 별도 secret으로 등록하지 않는다. GHCR push에는 workflow `permissions.packages: write`가 필요하다.
 
@@ -259,7 +260,7 @@ PYTHONPATH=/app/src
 LESSONPACK_CONFIG=
 LESSONPACK_LLM_PROVIDER=litellm
 LESSONPACK_LITELLM_MODEL=gpt-4o-mini
-LESSONPACK_LITELLM_FALLBACK_MODELS=gemini/gemini-2.0-flash
+LESSONPACK_LITELLM_FALLBACK_MODELS=gemini/gemini-3.5-flash
 LESSONPACK_LITELLM_CALLBACKS=langfuse_otel
 OPENAI_API_KEY=<github-secret>
 GEMINI_API_KEY=<github-secret>
@@ -270,6 +271,7 @@ LANGFUSE_BASE_URL=https://jp.cloud.langfuse.com
 LESSONPACK_LANGFUSE_TRACE_NAME=lessonpack-ai-mvp
 LESSONPACK_LANGFUSE_GENERATION_NAME=lessonpack-ai-generation
 LESSONPACK_LANGFUSE_SESSION_ID=lessonpack-ai-production
+LESSONPACK_LANGFUSE_CAPTURE_CONTENT=false
 LESSONPACK_LANGFUSE_FLUSH_WAIT_SECONDS=1.0
 SUPABASE_URL=<github-secret>
 SUPABASE_SERVICE_ROLE_KEY=<github-secret>
@@ -550,7 +552,7 @@ GCE 배포 전에 Supabase project에서 migration을 먼저 실행한다.
 | --- | --- |
 | Provider | `litellm` |
 | Primary model | `gpt-4o-mini` |
-| Fallback model | `gemini/gemini-2.0-flash` |
+| Fallback model | `gemini/gemini-3.5-flash` |
 | Trace callback | `langfuse_otel` |
 
 배포 전 확인:

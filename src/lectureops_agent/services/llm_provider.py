@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from contextlib import contextmanager
@@ -21,6 +22,7 @@ from lectureops_agent.services.langfuse_tracing import (
 
 
 _LLM_TRACE_CONTEXT: ContextVar[dict[str, Any]] = ContextVar("lessonpack_llm_trace_context", default={})
+_LOGGER = logging.getLogger(__name__)
 
 
 class LLMProvider(Protocol):
@@ -133,7 +135,10 @@ class LiteLLMProvider:
             "messages": [
                 {
                     "role": "system",
-                    "content": "You generate grounded lesson package outlines for LessonPack AI.",
+                    "content": (
+                        "You generate grounded lesson package outlines for LessonPack AI. "
+                        "Return exactly one valid JSON object."
+                    ),
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -147,20 +152,42 @@ class LiteLLMProvider:
         if self.timeout_seconds is not None:
             request["timeout"] = self.timeout_seconds
 
-        response = litellm.completion(**request)
-        response_text = _extract_message_content(response)
-        if otel_config.enabled:
-            record_langfuse_llm_span(
-                callbacks=self.callbacks,
-                provider_name=self.name,
-                model=self.model,
-                fallback_models=self.fallback_models,
-                prompt=prompt,
-                response_text=response_text,
-                metadata=metadata,
-            )
-            _wait_before_otel_flush()
-            flush_langfuse_otel()
+        response: Any | None = None
+        response_text: str | None = None
+        response_cost: float | None = None
+        error: Exception | None = None
+        started_at_ns = time.time_ns()
+        try:
+            response = litellm.completion(**request)
+            response_text = _extract_message_content(response)
+            response_cost = _calculate_completion_cost(litellm, response)
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            ended_at_ns = time.time_ns()
+            if otel_config.enabled:
+                _record_langfuse_trace_safely(
+                    callbacks=self.callbacks,
+                    provider_name=self.name,
+                    model=self.model,
+                    fallback_models=self.fallback_models,
+                    input_payload=request["messages"],
+                    response=response,
+                    response_text=response_text,
+                    metadata=metadata,
+                    started_at_ns=started_at_ns,
+                    ended_at_ns=ended_at_ns,
+                    model_parameters={
+                        "temperature": request["temperature"],
+                        "response_format": request["response_format"],
+                        "fallbacks": request.get("fallbacks", []),
+                    },
+                    response_cost=response_cost,
+                    error=error,
+                )
+        if response_text is None:
+            raise RuntimeError("LLM provider returned no response text")
         return response_text
 
 
@@ -213,7 +240,7 @@ def create_llm_provider_from_env() -> LLMProvider:
     if provider_name == "litellm":
         return LiteLLMProvider(
             model=os.getenv("LESSONPACK_LITELLM_MODEL", "gpt-4o-mini"),
-            fallback_models=_split_env_list(os.getenv("LESSONPACK_LITELLM_FALLBACK_MODELS", "gemini/gemini-2.0-flash")),
+            fallback_models=_split_env_list(os.getenv("LESSONPACK_LITELLM_FALLBACK_MODELS", "gemini/gemini-3.5-flash")),
             timeout_seconds=_optional_float_env("LESSONPACK_LITELLM_TIMEOUT_SECONDS"),
             callbacks=_split_env_list(
                 os.getenv("LESSONPACK_LITELLM_CALLBACKS")
@@ -278,6 +305,28 @@ def _wait_before_otel_flush() -> None:
         seconds = 1.0
     if seconds > 0:
         time.sleep(seconds)
+
+
+def _calculate_completion_cost(litellm_module: Any, response: Any) -> float | None:
+    calculator = getattr(litellm_module, "completion_cost", None)
+    if calculator is None:
+        return None
+    try:
+        value = calculator(completion_response=response)
+    except Exception:  # noqa: BLE001 - cost telemetry must not fail generation.
+        return None
+    if isinstance(value, (int, float)) and value >= 0:
+        return float(value)
+    return None
+
+
+def _record_langfuse_trace_safely(**kwargs: Any) -> None:
+    try:
+        record_langfuse_llm_span(**kwargs)
+        _wait_before_otel_flush()
+        flush_langfuse_otel()
+    except Exception as exc:  # noqa: BLE001 - observability must not break LLM generation.
+        _LOGGER.warning("Langfuse OTEL trace export failed: %s", exc)
 
 
 def _split_env_list(value: str | None) -> list[str]:

@@ -22,8 +22,9 @@
 3. [RAG 구축 및 연동 기획서](02_implementation-readiness/07_RAG_구축_연동_기획서.md)
 4. [검증 프로토콜](02_implementation-readiness/03_검증_프로토콜.md)
 5. [MVP 품질 평가 결과](04_validation/01_MVP_품질_평가_결과.md)
-6. [GCE Docker CI/CD 배포 계획서](02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
-7. [체크포인트 보완 기획서](02_implementation-readiness/06_체크포인트_보완_기획서.md)
+6. [Langfuse Trace 검증 결과](04_validation/02_Langfuse_trace_검증_결과.md)
+7. [GCE Docker CI/CD 배포 계획서](02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
+8. [체크포인트 보완 기획서](02_implementation-readiness/06_체크포인트_보완_기획서.md)
 
 ## 문서 구조
 
@@ -52,6 +53,7 @@ docs/
     01_Lovable_UI_생성_프롬프트.md
   04_validation/
     01_MVP_품질_평가_결과.md
+    02_Langfuse_trace_검증_결과.md
   90_reference/
     KOSENA_AI_서비스기획.md
 ```
@@ -69,7 +71,7 @@ docs/
 | LLMOps | LiteLLM, OpenAI primary, Gemini fallback, Langfuse tracing 적용 |
 | Export | DOCX/PPTX export 구현 |
 | 배포 | Docker, GCE, GitHub Actions CI/CD 적용 및 실배포 확인 |
-| 검증 | 74개 pytest와 3개 subtest 통과, Supabase·실제 LLM 품질 평가 전체 게이트 PASS |
+| 검증 | 77개 pytest와 3개 subtest 통과, Supabase·실제 LLM·Langfuse rich trace 품질 게이트 PASS |
 | 품질 보완 | 실제 DOCX/PPTX 테스트 산출물 분석 기반 보완 계획 추가 |
 
 ## 문서별 역할

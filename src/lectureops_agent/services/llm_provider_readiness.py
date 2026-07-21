@@ -32,7 +32,7 @@ def check_llm_provider_readiness(
         provider = env.get("LESSONPACK_LLM_PROVIDER", "mock").strip().casefold() or "mock"
         if provider == "litellm":
             model = env.get("LESSONPACK_LITELLM_MODEL", "gpt-4o-mini")
-            fallback_models = _split_env_list(env.get("LESSONPACK_LITELLM_FALLBACK_MODELS", "gemini/gemini-2.0-flash"))
+            fallback_models = _split_env_list(env.get("LESSONPACK_LITELLM_FALLBACK_MODELS", "gemini/gemini-3.5-flash"))
             callbacks = _split_env_list(
                 env.get("LESSONPACK_LITELLM_CALLBACKS")
                 or env.get("LESSONPACK_LITELLM_SUCCESS_CALLBACKS", "langfuse_otel")

@@ -80,7 +80,7 @@ class LLMProviderReadinessTests(unittest.TestCase):
                         "  provider: litellm",
                         "  model: gpt-4o-mini",
                         "  fallback_models:",
-                        "    - gemini/gemini-2.0-flash",
+                        "    - gemini/gemini-3.5-flash",
                         "  timeout_seconds: 30",
                         "  callbacks:",
                         "    - langfuse_otel",
@@ -103,7 +103,7 @@ class LLMProviderReadinessTests(unittest.TestCase):
         self.assertTrue(report["real_provider_ready"])
         self.assertEqual(report["provider"], "litellm")
         self.assertEqual(report["model"], "gpt-4o-mini")
-        self.assertEqual(report["fallback_models"], ["gemini/gemini-2.0-flash"])
+        self.assertEqual(report["fallback_models"], ["gemini/gemini-3.5-flash"])
         self.assertEqual(report["callbacks"], ["langfuse_otel"])
 
     def test_litellm_config_only_skips_secret_requirements(self):
@@ -119,7 +119,7 @@ class LLMProviderReadinessTests(unittest.TestCase):
                         "  provider: litellm",
                         "  model: gpt-4o-mini",
                         "  fallback_models:",
-                        "    - gemini/gemini-2.0-flash",
+                        "    - gemini/gemini-3.5-flash",
                         "  timeout_seconds: 30",
                         "  callbacks:",
                         "    - langfuse_otel",
@@ -141,7 +141,7 @@ class LLMProviderReadinessTests(unittest.TestCase):
         env = {
             "LESSONPACK_LLM_PROVIDER": "litellm",
             "LESSONPACK_LITELLM_MODEL": "gpt-4o-mini",
-            "LESSONPACK_LITELLM_FALLBACK_MODELS": "gemini/gemini-2.0-flash",
+            "LESSONPACK_LITELLM_FALLBACK_MODELS": "gemini/gemini-3.5-flash",
             "LESSONPACK_LITELLM_CALLBACKS": "langfuse_otel",
         }
 
