@@ -5,9 +5,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from lectureops_agent.config import LessonPackConfig, load_config
 from lectureops_agent.env import load_env_file
@@ -83,6 +83,17 @@ def create_app(
         version="0.1.0",
     )
     _configure_cors(app)
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_exception(_: Request, exc: Exception) -> JSONResponse:
+        # Returning through FastAPI's exception middleware lets CORSMiddleware
+        # add headers even when an unexpected dependency error occurs.
+        logger.exception("Unhandled API exception", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "An unexpected server error occurred. Please try again shortly."},
+        )
+
     config = app_config or _load_config_from_env()
     chunk_size_chars = config.chunk_size_chars if config else CHUNK_SIZE_CHARS
     chunk_overlap_chars = config.chunk_overlap_chars if config else CHUNK_OVERLAP_CHARS
@@ -348,6 +359,12 @@ def create_app(
                 )
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("Lesson package regeneration failed")
+            raise HTTPException(
+                status_code=502,
+                detail="Lesson package regeneration is temporarily unavailable. Please try again shortly.",
+            ) from exc
 
         packages[result.package.package_id] = result.package
         generation_logs[result.package.package_id] = result.log
@@ -364,8 +381,12 @@ def create_app(
                     created_at=result.log.created_at,
                 )
             )
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("Regenerated package persistence failed")
+            raise HTTPException(
+                status_code=503,
+                detail="Package persistence is temporarily unavailable. Please try again shortly.",
+            ) from exc
         return PackageRegenerateResponse(
             package=result.package,
             source_package_id=source_package.package_id,
@@ -432,15 +453,23 @@ def _retrieve_for_request(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Evidence retrieval failed")
+        raise HTTPException(
+            status_code=503,
+            detail="Evidence retrieval is temporarily unavailable. Please try again shortly.",
+        ) from exc
 
 
 def _require_project(repository: RAGRepository, project_id: str) -> Project:
     try:
         project = repository.get_project(project_id)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Project lookup failed")
+        raise HTTPException(
+            status_code=503,
+            detail="Project persistence is temporarily unavailable. Please try again shortly.",
+        ) from exc
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return project

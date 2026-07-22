@@ -129,6 +129,13 @@ class PromptAwareStructuredProvider:
         return json.dumps(payload, ensure_ascii=False)
 
 
+class RevisionFailureProvider(PromptAwareStructuredProvider):
+    def generate(self, *, prompt: str) -> str:
+        if "Revision mode:" in prompt:
+            raise RuntimeError("upstream provider unavailable")
+        return super().generate(prompt=prompt)
+
+
 class RAGApiTests(unittest.TestCase):
     def test_project_persistence_failure_returns_service_unavailable(self):
         client, _, _ = isolated_client(repository=FailingProjectRepository())
@@ -286,6 +293,44 @@ class RAGApiTests(unittest.TestCase):
 
         exported = client.get(f"/api/packages/{revised['package_id']}/export.docx")
         self.assertEqual(exported.status_code, 200)
+
+    def test_regenerate_provider_failure_returns_cors_enabled_gateway_error(self):
+        provider = RevisionFailureProvider()
+        client, _, _ = isolated_client(llm_provider=provider)
+        created = client.post("/api/projects", json=project_payload())
+        project_id = created.json()["project_id"]
+        uploaded = client.post(
+            f"/api/projects/{project_id}/materials",
+            files={
+                "file": (
+                    "functions.md",
+                    "A Python function receives input and returns output. " * 20,
+                    "text/markdown",
+                )
+            },
+        )
+        self.assertEqual(uploaded.status_code, 200)
+        generated = client.post(
+            f"/api/projects/{project_id}/rag/generate",
+            json={"query": "function input return output", "include_baseline": False},
+        )
+        source_package_id = generated.json()["package"]["package_id"]
+
+        response = client.post(
+            f"/api/packages/{source_package_id}/regenerate",
+            headers={"Origin": "https://lessonpack-ai.lovable.app"},
+            json={"instruction": "Make the practice easier.", "include_baseline": False},
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.headers["access-control-allow-origin"],
+            "https://lessonpack-ai.lovable.app",
+        )
+        self.assertEqual(
+            response.json()["detail"],
+            "Lesson package regeneration is temporarily unavailable. Please try again shortly.",
+        )
 
     def test_rag_health_exposes_runtime_provider_without_secrets(self):
         client, _, _ = isolated_client()
