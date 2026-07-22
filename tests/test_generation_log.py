@@ -156,6 +156,8 @@ class GenerationLogTests(unittest.TestCase):
         self.assertEqual(len(result.log.schema_validation_errors), 1)
         self.assertIn(project.lesson_title, result.log.prompt)
         self.assertIn(chunk.text, result.log.prompt)
+        self.assertIn("Training plan: 2 total hours across 1 lessons", result.log.prompt)
+        self.assertIn("Delivery ratio: theory 30% and practice 70%", result.log.prompt)
         self.assertEqual(provider.prompts, [result.log.prompt])
 
     def test_generation_applies_valid_structured_provider_output(self):
@@ -173,6 +175,10 @@ class GenerationLogTests(unittest.TestCase):
         self.assertEqual(result.package.lesson_plan.lecture_flow[1].content, "매개변수를 받는 함수를 작성하고 호출 결과를 비교한다.")
         self.assertEqual(result.package.practice.scenario, "입력값을 받아 결과를 반환하는 자동화 함수를 작성한다.")
         self.assertIn("함수화", result.package.practice.submission)
+        self.assertEqual(
+            sum(item.duration_min or 0 for item in result.package.lesson_plan.lecture_flow),
+            project.lesson_duration_minutes,
+        )
         self.assertEqual(len(result.package.assessment.multiple_choice), 5)
         self.assertEqual(result.log.citation_ids, [chunk.chunk_id])
         self.assertIn("Return one JSON object only", result.log.prompt)

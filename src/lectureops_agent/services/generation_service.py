@@ -204,6 +204,8 @@ def build_generation_prompt(
     source_package: LessonPackage | None = None,
     revision_instruction: str | None = None,
 ) -> str:
+    lesson_duration = project.lesson_duration_minutes
+    intro_duration, development_duration, closing_duration = _lesson_flow_durations(lesson_duration)
     objective_text = "\n".join(f"- {objective}" for objective in project.learning_objectives)
     ncs_text = "\n".join(
         f"- {unit.unit_code} {unit.unit_name}: {', '.join(unit.elements) if unit.elements else '세부 요소 미기재'}"
@@ -245,6 +247,9 @@ def build_generation_prompt(
         f"Course: {project.course_title}\n"
         f"Lesson: {project.lesson_title}\n"
         f"Learners: {project.learner_profile}\n"
+        f"Training plan: {project.total_training_hours:g} total hours across {project.total_lessons} lessons; "
+        f"this lesson is {lesson_duration} minutes.\n"
+        f"Delivery ratio: theory {project.theory_ratio_percent}% and practice {project.practice_ratio_percent}%.\n"
         "Learning objectives:\n"
         f"{objective_text}\n"
         "NCS units:\n"
@@ -254,9 +259,9 @@ def build_generation_prompt(
         f"Required grounded practice concepts: {practice_keyword_text}\n"
         f"{revision_context}"
         "Return one JSON object only, without Markdown fences or explanatory text. Use this exact schema:\n"
-        '{"lesson_plan":{"lecture_flow":[{"section":"도입","duration_min":15,'
-        '"content":"...","citation_ids":["chunk-id"]},{"section":"전개","duration_min":75,'
-        '"content":"...","citation_ids":["chunk-id"]},{"section":"정리","duration_min":30,'
+        f'{{"lesson_plan":{{"lecture_flow":[{{"section":"도입","duration_min":{intro_duration},'
+        f'"content":"...","citation_ids":["chunk-id"]}},{{"section":"전개","duration_min":{development_duration},'
+        f'"content":"...","citation_ids":["chunk-id"]}},{{"section":"정리","duration_min":{closing_duration},'
         '"content":"...","citation_ids":["chunk-id"]}]},'
         '"practice":{"scenario":"...","steps":["...","...","..."],"submission":"...",'
         '"rubric":["...","...","..."],"citation_ids":["chunk-id"]},'
@@ -265,6 +270,8 @@ def build_generation_prompt(
         '"performance_task":{"title":"...","description":"...","rubric":["...","...","..."],'
         '"citation_ids":["chunk-id"]}}}\n'
         "Requirements: lecture_flow must contain exactly 3 items and multiple_choice exactly 5 items. "
+        f"The three duration_min values must total exactly {lesson_duration} minutes. Balance explanatory theory and "
+        f"learner practice according to the requested {project.theory_ratio_percent}:{project.practice_ratio_percent} ratio. "
         "Write all learner-facing text in natural Korean. Do not repeat labels such as '수행 절차:' or '제출물:' "
         "inside values. Use only citation IDs shown above, and attach each citation only to content directly "
         "supported by that chunk. Do not introduce proper nouns, numbers, laws, or certifications absent from "
@@ -332,6 +339,9 @@ def _build_package(
     primary_objective = project.learning_objectives[0]
     practice_keywords = _practice_keywords(project=project, retrieved_chunks=retrieved_chunks)
     practice_keyword_text = ", ".join(practice_keywords)
+    intro_duration, development_duration, closing_duration = _lesson_flow_durations(
+        project.lesson_duration_minutes
+    )
 
     lesson_plan = LessonPlan(
         title=project.lesson_title,
@@ -339,7 +349,7 @@ def _build_package(
         lecture_flow=[
             LectureFlowItem(
                 section="도입",
-                duration_min=15,
+                duration_min=intro_duration,
                 content=(
                     f"{project.course_title} 과정에서 이번 차시의 학습목표를 안내한다. "
                     f"학습자는 제시된 목표를 확인하고, 차시 활동을 {alignment_text}의 수행 기준과 연결한다."
@@ -349,17 +359,18 @@ def _build_package(
             ),
             LectureFlowItem(
                 section="전개",
-                duration_min=75,
+                duration_min=development_duration,
                 content=(
                     "검색 근거에서 확인된 핵심 개념을 예제와 함께 설명한다. "
-                    f"강사는 다음 항목을 중심으로 시범을 보이고 학습자가 직접 실행 결과를 확인하도록 한다: {practice_keyword_text}."
+                    f"강사는 이론 {project.theory_ratio_percent}%, 실습 {project.practice_ratio_percent}% 비율로 "
+                    f"다음 항목을 설명하고 학습자가 직접 실행 결과를 확인하도록 한다: {practice_keyword_text}."
                 ),
                 citation_ids=development_citations,
                 ncs_alignment=alignments,
             ),
             LectureFlowItem(
                 section="정리",
-                duration_min=30,
+                duration_min=closing_duration,
                 content="학습자가 작성한 코드, 실행 결과, 개념 설명을 기준으로 학습목표와 NCS 수행 기준 충족 여부를 점검한다.",
                 citation_ids=closing_citations,
                 ncs_alignment=primary_alignment,
@@ -480,7 +491,7 @@ def _build_package(
         practice=practice,
         assessment=assessment,
         evidence_sources=_citation_details(retrieved_chunks),
-        template_metadata=StandardTemplateMetadata(lesson_duration_min=120),
+        template_metadata=_template_metadata(project),
     )
     if provider_draft is None:
         return fallback_package
@@ -575,13 +586,17 @@ def _package_from_provider_draft(
 ) -> LessonPackage:
     alignments = _ncs_alignments(project)
     primary_alignment = alignments[:1]
+    flow_durations = _scale_durations(
+        [flow.duration_min for flow in provider_draft.lesson_plan.lecture_flow],
+        project.lesson_duration_minutes,
+    )
     lesson_plan = LessonPlan(
         title=project.lesson_title,
         learning_objectives=project.learning_objectives,
         lecture_flow=[
             LectureFlowItem(
                 section=flow.section,
-                duration_min=flow.duration_min,
+                duration_min=flow_durations[index],
                 content=flow.content,
                 citation_ids=flow.citation_ids,
                 ncs_alignment=primary_alignment if index in {0, 2} else alignments,
@@ -633,8 +648,45 @@ def _package_from_provider_draft(
         practice=practice,
         assessment=assessment,
         evidence_sources=_citation_details(retrieved_chunks),
-        template_metadata=StandardTemplateMetadata(lesson_duration_min=lesson_duration or None),
+        template_metadata=_template_metadata(project, lesson_duration_min=lesson_duration or None),
     )
+
+
+def _template_metadata(
+    project: Project,
+    *,
+    lesson_duration_min: int | None = None,
+) -> StandardTemplateMetadata:
+    return StandardTemplateMetadata(
+        lesson_duration_min=lesson_duration_min or project.lesson_duration_minutes,
+        total_training_hours=project.total_training_hours,
+        total_lessons=project.total_lessons,
+        theory_ratio_percent=project.theory_ratio_percent,
+        practice_ratio_percent=project.practice_ratio_percent,
+    )
+
+
+def _lesson_flow_durations(total_minutes: int) -> tuple[int, int, int]:
+    durations = _scale_durations([15, 75, 30], total_minutes)
+    return durations[0], durations[1], durations[2]
+
+
+def _scale_durations(durations: list[int], total_minutes: int) -> list[int]:
+    if not durations:
+        return []
+    weights = [max(1, duration) for duration in durations]
+    weight_total = sum(weights)
+    scaled = [max(1, round(total_minutes * weight / weight_total)) for weight in weights]
+    while sum(scaled) < total_minutes:
+        index = max(range(len(weights)), key=lambda item: weights[item])
+        scaled[index] += 1
+    while sum(scaled) > total_minutes:
+        candidates = [index for index, value in enumerate(scaled) if value > 1]
+        if not candidates:
+            break
+        index = max(candidates, key=lambda item: scaled[item])
+        scaled[index] -= 1
+    return scaled
 
 
 def _package_citation_ids(package: LessonPackage) -> list[str]:

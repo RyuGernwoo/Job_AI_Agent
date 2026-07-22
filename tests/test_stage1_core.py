@@ -26,6 +26,10 @@ def sample_project_create() -> ProjectCreate:
         course_title="Generative AI Python Basics",
         lesson_title="Python functions and prompt automation practice",
         learner_profile="Job training learners with basic Python experience",
+        total_training_hours=6,
+        total_lessons=3,
+        theory_ratio_percent=40,
+        practice_ratio_percent=60,
         learning_objectives=[
             "Explain function inputs and return values.",
             "Write a simple prompt automation function.",
@@ -64,6 +68,17 @@ class Stage1CoreTests(unittest.TestCase):
                 learning_objectives=[],
                 ncs_units=[],
             )
+
+    def test_project_schema_validates_training_plan(self):
+        project = sample_project_create()
+
+        self.assertEqual(project.lesson_duration_minutes, 120)
+        self.assertEqual(project.theory_ratio_percent + project.practice_ratio_percent, 100)
+
+        invalid_payload = project.model_dump()
+        invalid_payload.update(theory_ratio_percent=50, practice_ratio_percent=60)
+        with self.assertRaises(ValueError):
+            ProjectCreate.model_validate(invalid_payload)
 
     def test_chunk_text_creates_stable_ids_and_overlap(self):
         text = "abcdefghijklmnopqrstuvwxyz" * 20
@@ -106,6 +121,11 @@ class Stage1CoreTests(unittest.TestCase):
         self.assertEqual(package.project_id, project.project_id)
         self.assertEqual(package.lesson_plan.title, project.lesson_title)
         self.assertEqual(package.lesson_plan.lecture_flow[0].citation_ids, [chunks[0].chunk_id])
+        self.assertEqual(sum(item.duration_min or 0 for item in package.lesson_plan.lecture_flow), 120)
+        self.assertEqual(package.template_metadata.total_training_hours, 6)
+        self.assertEqual(package.template_metadata.total_lessons, 3)
+        self.assertEqual(package.template_metadata.theory_ratio_percent, 40)
+        self.assertEqual(package.template_metadata.practice_ratio_percent, 60)
         self.assertEqual(package.practice.citation_ids, [chunks[0].chunk_id])
         self.assertEqual(len(package.assessment.multiple_choice), 5)
         self.assertTrue(
@@ -124,6 +144,8 @@ class Stage1CoreTests(unittest.TestCase):
         self.assertEqual(created.status_code, 200)
         body = created.json()
         self.assertEqual(body["course_title"], "Generative AI Python Basics")
+        self.assertEqual(body["total_training_hours"], 6)
+        self.assertEqual(body["total_lessons"], 3)
         self.assertIn("project_id", body)
 
     def test_fastapi_cors_allows_lovable_origins(self):

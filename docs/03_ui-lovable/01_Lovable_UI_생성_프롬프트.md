@@ -34,7 +34,8 @@ https://34.47.92.210.nip.io
 
 ### 프로젝트
 
-- 과정명, 차시명, 학습자 수준, 학습목표를 입력한다.
+- 과정명, 차시명, 학습자 수준, 총 훈련시간, 총 차시, 이론·실습 비율, 학습목표를 입력한다.
+- 이론·실습 비율은 각각 0~100이며 합계 100으로 검증한다.
 - NCS 능력단위 코드, 명칭, 수행 요소를 입력할 수 있다.
 - 프로젝트 생성 성공 후 다음 단계로 이동한다.
 
@@ -89,6 +90,10 @@ Content-Type: application/json
   "course_title": "생성형 AI 활용 Python 기초",
   "lesson_title": "함수와 반환값",
   "learner_profile": "Python 입문 직업훈련생",
+  "total_training_hours": 8,
+  "total_lessons": 4,
+  "theory_ratio_percent": 30,
+  "practice_ratio_percent": 70,
   "learning_objectives": ["함수의 입력과 반환값을 설명할 수 있다."],
   "ncs_units": [
     {

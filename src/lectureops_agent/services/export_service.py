@@ -21,6 +21,9 @@ def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> 
     document.add_paragraph(f"템플릿 버전: {package.template_metadata.template_version}")
     if package.template_metadata.lesson_duration_min:
         document.add_paragraph(f"수업 시간: {package.template_metadata.lesson_duration_min}분")
+    training_plan = _training_plan_summary(package)
+    if training_plan:
+        document.add_paragraph(training_plan)
 
     document.add_heading("학습 목표", level=1)
     for objective in package.lesson_plan.learning_objectives:
@@ -75,7 +78,10 @@ def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> 
 
     cover = presentation.slides.add_slide(presentation.slide_layouts[0])
     cover.shapes.title.text = package.lesson_plan.title
-    cover.placeholders[1].text = "LessonPack AI 강의 패키지"
+    training_plan = _training_plan_summary(package)
+    cover.placeholders[1].text = "\n".join(
+        value for value in ["LessonPack AI 강의 패키지", training_plan] if value
+    )
 
     _add_bullet_slide(presentation, "학습 목표", package.lesson_plan.learning_objectives)
 
@@ -147,6 +153,21 @@ def build_export_filename(package: LessonPackage, extension: str) -> str:
     title = title[:48].rstrip("._ ") or "LessonPack"
     suffix = "교안" if normalized_extension == "docx" else "강의자료"
     return f"{title}_{suffix}.{normalized_extension}"
+
+
+def _training_plan_summary(package: LessonPackage) -> str:
+    metadata = package.template_metadata
+    if (
+        metadata.total_training_hours is None
+        or metadata.total_lessons is None
+        or metadata.theory_ratio_percent is None
+        or metadata.practice_ratio_percent is None
+    ):
+        return ""
+    return (
+        f"훈련 운영: 총 {metadata.total_training_hours:g}시간 · {metadata.total_lessons}차시 · "
+        f"이론 {metadata.theory_ratio_percent}% · 실습 {metadata.practice_ratio_percent}%"
+    )
 
 
 def _add_alignment_paragraph(document: Document, alignments: list[NCSAlignment]) -> None:

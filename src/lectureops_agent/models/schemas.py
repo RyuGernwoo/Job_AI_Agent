@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PackageStatus(str, Enum):
@@ -40,6 +40,10 @@ class CitationDetail(BaseModel):
 class StandardTemplateMetadata(BaseModel):
     template_version: str = "lessonpack-mvp-v0.2"
     lesson_duration_min: int | None = Field(default=None, ge=1)
+    total_training_hours: float | None = Field(default=None, gt=0)
+    total_lessons: int | None = Field(default=None, ge=1)
+    theory_ratio_percent: int | None = Field(default=None, ge=0, le=100)
+    practice_ratio_percent: int | None = Field(default=None, ge=0, le=100)
     generation_scope: str = "single_lesson_mvp"
 
 
@@ -47,8 +51,24 @@ class ProjectCreate(BaseModel):
     course_title: str = Field(min_length=1)
     lesson_title: str = Field(min_length=1)
     learner_profile: str = Field(min_length=1)
+    total_training_hours: float = Field(default=2.0, gt=0, le=10000)
+    total_lessons: int = Field(default=1, ge=1, le=1000)
+    theory_ratio_percent: int = Field(default=30, ge=0, le=100)
+    practice_ratio_percent: int = Field(default=70, ge=0, le=100)
     learning_objectives: list[str] = Field(min_length=1)
     ncs_units: list[NCSUnit] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_training_plan(self) -> "ProjectCreate":
+        if self.theory_ratio_percent + self.practice_ratio_percent != 100:
+            raise ValueError("theory_ratio_percent and practice_ratio_percent must total 100")
+        if self.total_training_hours * 60 / self.total_lessons < 15:
+            raise ValueError("average lesson duration must be at least 15 minutes")
+        return self
+
+    @property
+    def lesson_duration_minutes(self) -> int:
+        return max(1, round(self.total_training_hours * 60 / self.total_lessons))
 
     def to_project(self, project_id: str | None = None) -> "Project":
         return Project(
@@ -56,6 +76,10 @@ class ProjectCreate(BaseModel):
             course_title=self.course_title,
             lesson_title=self.lesson_title,
             learner_profile=self.learner_profile,
+            total_training_hours=self.total_training_hours,
+            total_lessons=self.total_lessons,
+            theory_ratio_percent=self.theory_ratio_percent,
+            practice_ratio_percent=self.practice_ratio_percent,
             learning_objectives=self.learning_objectives,
             ncs_units=self.ncs_units,
             created_at=datetime.now(timezone.utc),

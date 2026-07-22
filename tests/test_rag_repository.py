@@ -70,6 +70,10 @@ class RAGRepositoryTests(unittest.TestCase):
             course_title="Python",
             lesson_title="Functions",
             learner_profile="Beginners",
+            total_training_hours=8,
+            total_lessons=4,
+            theory_ratio_percent=35,
+            practice_ratio_percent=65,
             learning_objectives=["Explain return values."],
             ncs_units=[NCSUnit(unit_code="NCS-001", unit_name="Programming")],
         ).to_project(project_id="project-001")

@@ -23,6 +23,10 @@ def make_package(status: PackageStatus = PackageStatus.GENERATED):
         course_title="Generative AI Python Basics",
         lesson_title="Python functions and prompt automation practice",
         learner_profile="Job training learners with basic Python experience",
+        total_training_hours=8,
+        total_lessons=4,
+        theory_ratio_percent=30,
+        practice_ratio_percent=70,
         learning_objectives=["Explain function inputs and return values."],
         ncs_units=[NCSUnit(unit_code="MVP-NCS-001", unit_name="AI basics", elements=[])],
     ).to_project(project_id="project-001")
@@ -58,6 +62,7 @@ class ExportServiceTests(unittest.TestCase):
             text = "\n".join(paragraph.text for paragraph in doc.paragraphs)
             self.assertIn("Python functions and prompt automation practice", text)
             self.assertIn("실습 과제", text)
+            self.assertIn("훈련 운영: 총 8시간 · 4차시 · 이론 30% · 실습 70%", text)
             self.assertIn("근거 출처", text)
             self.assertIn("PSF License", text)
             self.assertIn("NCS 연계", text)
@@ -84,6 +89,7 @@ class ExportServiceTests(unittest.TestCase):
             )
             self.assertIn("Python functions and prompt automation practice", slide_text)
             self.assertIn("실습 과제", slide_text)
+            self.assertIn("훈련 운영: 총 8시간 · 4차시 · 이론 30% · 실습 70%", slide_text)
             self.assertIn("근거 출처", slide_text)
             self.assertIn("PSF License", slide_text)
             self.assertNotIn("근거:", slide_text)

@@ -23,6 +23,21 @@ class SupabaseMigrationTests(unittest.TestCase):
         self.assertIn("alter column embedding drop not null", sql)
         self.assertIn("set enable_indexscan = off", sql)
 
+    def test_training_plan_migration_adds_project_fields_and_constraints(self):
+        sql = (ROOT / "supabase" / "migrations" / "003_training_plan_fields.sql").read_text(
+            encoding="utf-8"
+        )
+
+        for column_name in (
+            "total_training_hours",
+            "total_lessons",
+            "theory_ratio_percent",
+            "practice_ratio_percent",
+        ):
+            self.assertIn(column_name, sql)
+        self.assertIn("theory_ratio_percent + practice_ratio_percent = 100", sql)
+        self.assertIn("total_training_hours * 60 / total_lessons >= 15", sql)
+
 
 if __name__ == "__main__":
     unittest.main()
