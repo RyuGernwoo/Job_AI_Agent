@@ -451,6 +451,11 @@ def create_app(
                 detail="수정 요청을 뒷받침할 검색 근거가 없습니다. 자료를 추가하거나 요청을 구체화하십시오.",
             )
         _validate_ncs_generation_evidence(project, retrieval_run.evidence)
+        revision_chunks = _merge_revision_evidence_chunks(
+            source_package=source_package,
+            retrieved_chunks=[item.chunk for item in retrieval_run.evidence],
+            project_id=project.project_id,
+        )
 
         try:
             with llm_trace_context(
@@ -465,7 +470,7 @@ def create_app(
             ):
                 result = generate_lesson_package_with_log(
                     project=project,
-                    retrieved_chunks=[item.chunk for item in retrieval_run.evidence],
+                    retrieved_chunks=revision_chunks,
                     llm_provider=llm_provider,
                     retrieval_run_id=retrieval_run.run_id,
                     trace_id=retrieval_run.trace_id,
@@ -542,6 +547,59 @@ def create_app(
         )
 
     return app
+
+
+def _merge_revision_evidence_chunks(
+    *,
+    source_package: LessonPackage,
+    retrieved_chunks: list[MaterialChunk],
+    project_id: str,
+) -> list[MaterialChunk]:
+    """Make original citations available while adding evidence found for the edit request."""
+    merged: list[MaterialChunk] = []
+    seen: set[str] = set()
+    for index, citation in enumerate(source_package.evidence_sources, start=1):
+        if citation.chunk_id in seen:
+            continue
+        source_type = _revision_source_type(citation.source_file or citation.source_name)
+        merged.append(
+            MaterialChunk(
+                chunk_id=citation.chunk_id,
+                project_id=project_id,
+                document_id=f"revision-source-{index:03d}",
+                source_name=citation.source_name,
+                source_type=source_type,
+                page=citation.page,
+                text=citation.excerpt,
+                metadata={
+                    key: value
+                    for key, value in {
+                        "source_url": citation.source_url,
+                        "license": citation.license,
+                        "source_file": citation.source_file,
+                        "evidence_origin": citation.evidence_origin,
+                        "evidence_authority": citation.evidence_authority,
+                        "revision_source": True,
+                    }.items()
+                    if value is not None
+                },
+            )
+        )
+        seen.add(citation.chunk_id)
+    for chunk in retrieved_chunks:
+        if chunk.chunk_id not in seen:
+            merged.append(chunk)
+            seen.add(chunk.chunk_id)
+    return merged
+
+
+def _revision_source_type(value: str) -> str:
+    suffix = Path(value).suffix.casefold()
+    if suffix == ".pdf":
+        return "pdf"
+    if suffix == ".txt":
+        return "txt"
+    return "md"
 
 
 def _retrieve_for_request(

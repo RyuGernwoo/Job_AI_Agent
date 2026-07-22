@@ -119,6 +119,15 @@ class MissingNCSCriteriaProvider(StructuredLLMProvider):
         return json.dumps(payload, ensure_ascii=False)
 
 
+class RevisionWithoutNCSCriteriaProvider(MissingNCSCriteriaProvider):
+    name = "revision-without-ncs-criteria-test"
+
+    def generate(self, *, prompt: str) -> str:
+        payload = json.loads(super().generate(prompt=prompt))
+        payload["practice"]["scenario"] = "초급 학습자용으로 단계를 나눈 함수 실습을 수행한다."
+        return json.dumps(payload, ensure_ascii=False)
+
+
 def sample_project_create() -> ProjectCreate:
     return ProjectCreate(
         course_type="ncs",
@@ -254,6 +263,37 @@ class GenerationLogTests(unittest.TestCase):
 
         self.assertFalse(result.log.structured_output_applied)
         self.assertIn("items without ncs_criteria", result.log.schema_validation_errors[0])
+
+    def test_ncs_revision_preserves_source_criteria_when_provider_omits_them(self):
+        project = sample_project_create().to_project(project_id="project-001")
+        chunk = sample_chunk(project.project_id)
+        source = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=[chunk],
+            llm_provider=StructuredLLMProvider(chunk.chunk_id),
+            package_id="package-source",
+        ).package
+
+        result = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=[chunk],
+            llm_provider=RevisionWithoutNCSCriteriaProvider(chunk.chunk_id),
+            package_id="package-revised",
+            source_package=source,
+            revision_instruction="실습을 초급 수준으로 더 쉽게 수정해 주세요.",
+        )
+
+        self.assertTrue(result.log.structured_output_applied)
+        self.assertEqual(result.package.status.value, "regenerated")
+        self.assertNotEqual(result.package.practice.scenario, source.practice.scenario)
+        self.assertEqual(
+            result.package.practice.ncs_alignment,
+            source.practice.ncs_alignment,
+        )
+        self.assertEqual(
+            result.package.assessment.performance_task.ncs_alignment,
+            source.assessment.performance_task.ncs_alignment,
+        )
 
     def test_fastapi_generate_stores_generation_log(self):
         provider = StaticLLMProvider()

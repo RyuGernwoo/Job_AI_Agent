@@ -12,8 +12,9 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from lectureops_agent.app.main import create_app
+from lectureops_agent.app.main import _merge_revision_evidence_chunks, create_app
 from lectureops_agent.models.schemas import MaterialChunk, NCSUnit, ProjectCreate
+from lectureops_agent.services.generation_service import generate_lesson_package_with_log
 from lectureops_agent.services.llm_provider import MockLLMProvider
 from lectureops_agent.services.rag_repository import InMemoryRAGRepository
 from lectureops_agent.services.vector_store import InMemoryVectorStore
@@ -166,6 +167,44 @@ class IgnoringRevisionProvider:
 
 
 class RAGApiTests(unittest.TestCase):
+    def test_revision_evidence_keeps_source_citations_and_deduplicates_new_chunks(self):
+        project = ProjectCreate.model_validate(project_payload()).to_project(
+            project_id="project-001"
+        )
+        source_chunk = MaterialChunk(
+            chunk_id="source-c001",
+            project_id=project.project_id,
+            document_id="doc-source",
+            source_name="source.md",
+            source_type="md",
+            text="Source evidence for function inputs and return values.",
+        )
+        source_package = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=[source_chunk],
+            llm_provider=MockLLMProvider(),
+            package_id="package-source",
+        ).package
+        new_chunk = source_chunk.model_copy(
+            update={
+                "chunk_id": "new-c001",
+                "document_id": "doc-new",
+                "source_name": "new.txt",
+                "source_type": "txt",
+                "text": "New evidence found for the revision request.",
+            }
+        )
+
+        merged = _merge_revision_evidence_chunks(
+            source_package=source_package,
+            retrieved_chunks=[source_chunk, new_chunk],
+            project_id=project.project_id,
+        )
+
+        self.assertEqual([chunk.chunk_id for chunk in merged], ["source-c001", "new-c001"])
+        self.assertEqual(merged[0].metadata["revision_source"], True)
+        self.assertEqual(merged[1].source_type, "txt")
+
     def test_project_persistence_failure_returns_service_unavailable(self):
         client, _, _ = isolated_client(repository=FailingProjectRepository())
 
