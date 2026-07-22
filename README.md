@@ -6,7 +6,7 @@
 
 **교안 · 실습 · 평가를 한 번에, 강의 준비를 위한 AI 패키지 생성 서비스**
 
-과정 정보와 교재만 넣으면, 교재와 **NCS 근거**를 바탕으로<br/>
+과정 정보와 교재만 넣으면, 업로드 교재와 필요 시 **NCS 근거**를 바탕으로<br/>
 강의 교안 · 실습 과제 · 평가 문항을 만들어 **DOCX / PPTX**로 내려주는 AI 서비스입니다.
 
 <img src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white" alt="Python" />
@@ -18,7 +18,7 @@
 
 <br/>
 
-[🌐 서비스 바로가기](https://lessonpack-ai.lovable.app/) · [📑 API 문서 (Swagger)](http://34.47.92.210:8000/docs) · [💻 GitHub](https://github.com/RyuGernwoo)
+[🌐 서비스 바로가기](https://lessonpack-ai.lovable.app/) · [📑 API 문서 (Swagger)](https://34.47.92.210.nip.io/docs) · [💻 GitHub](https://github.com/RyuGernwoo)
 
 </div>
 
@@ -33,7 +33,7 @@
 > - 📗 교재 내용과 **NCS 능력단위**를 함께 반영해야 하는 **교육 담당자**
 > - 📝 실습과 평가 문항을 **같은 학습목표에 맞춰** 구성하고 싶은 **교안 작성자**
 
-과정명·차시·학습목표·NCS 능력단위를 입력하고 교재를 올리면, 관련 근거 문단을 검색해 교안·실습·평가 초안을 한 번에 생성합니다. 공통 데이터에 해당 NCS 분야가 없더라도 **사용자가 업로드한 교재를 우선 근거로 사용**합니다. 마음에 들지 않으면 **자연어로 수정 사항을 말하기만** 하면 새 버전을 만들어 줍니다.
+강의 유형을 `NCS 기반` 또는 `일반 강의`로 선택하고 과정명·차시·학습목표와 교재를 입력하면, 관련 근거 문단을 검색해 교안·실습·평가 초안을 한 번에 생성합니다. NCS 기반 강의는 대상 수행준거까지 연결하고, 일반 강의는 NCS를 주장하지 않습니다. 공통 데이터에 해당 NCS 분야가 없더라도 **사용자가 업로드한 교재를 우선 근거로 사용**합니다. 마음에 들지 않으면 **자연어로 수정 사항을 말하기만** 하면 새 버전을 만들어 줍니다.
 
 > ⚠️ LessonPack AI는 강의 준비를 돕는 **초안 생성 도구**입니다. 생성 결과는 강사의 검토 후 사용하는 것을 전제로 합니다.
 
@@ -51,6 +51,8 @@
 | 🧪 **실습 과제 생성** | 수업 목표에 맞는 실습 시나리오와 수행 절차를 구성 |
 | ✅ **평가 문항 생성** | 객관식 문항과 실습형 평가 과제 · 루브릭을 함께 제공 |
 | 📚 **근거 출처 표시** | 생성 근거가 된 교재·NCS 문단을 산출물에 함께 정리 |
+| **강의 유형 분리** | NCS 기반 강의와 일반 강의를 구분해 입력·검색·생성·내보내기 정책 적용 |
+| **NCS 수행준거 점검** | 선택한 수행준거의 교안·실습·평가 연결률과 누락 경고 제공 |
 | 🗂️ **사용자 자료 fallback** | 공통 NCS 자료가 없는 분야는 업로드 교재를 프로젝트 근거로 사용 |
 | 🔁 **자연어 재생성** | "난이도를 낮춰줘", "실습을 하나 더" 처럼 말로 수정 |
 | 📥 **DOCX / PPTX 다운로드** | 완성된 강의 패키지를 문서·슬라이드 파일로 내려받기 |
@@ -60,12 +62,12 @@
 처음 사용한다면 아래 순서를 따라 해 보세요.
 
 1. **접속** — [서비스 페이지](https://lessonpack-ai.lovable.app/)에 들어갑니다.
-2. **과정 정보 입력** — 과정명, 차시명, 학습 대상, 훈련 계획, 학습목표, **NCS 능력단위와 근거 검색어**를 입력합니다.
+2. **과정 정보 입력** — NCS 기반 또는 일반 강의를 선택하고 과정명, 차시명, 학습 대상, 훈련 계획, 학습목표와 근거 검색어를 입력합니다. NCS 기반 강의라면 능력단위와 대상 수행준거도 선택합니다.
 3. **교재 업로드 및 자동 생성** — Markdown · TXT · PDF 자료를 올리면 입력한 여러 검색어로 RAG 근거를 찾고 교안 · 실습 · 평가 초안을 자동 생성합니다.
 4. **결과 확인·수정** — 생성 결과를 확인하고, 필요한 경우 바꾸고 싶은 점을 자연어로 입력합니다.
 5. **다운로드** — 완성된 강의 패키지를 **DOCX** 또는 **PPTX**로 내려받습니다.
 
-> 💡 학습목표와 NCS 능력단위를 구체적으로 적을수록, 생성되는 교안과 평가 문항이 더 정확해집니다.
+> 학습목표와 검색어를 구체적으로 적을수록 생성되는 교안과 평가 문항이 더 정확해집니다. NCS 기반 강의는 이번 차시에서 실제로 다룰 수행준거만 선택합니다.
 >
 > 공통 NCS 자료에 해당 분야가 없더라도 업로드한 교재·기관 자료가 있으면 계속 생성할 수 있습니다. 이 경우 화면에 **업로드 근거**로 표시되며, NCS 세부 기준은 사용자 입력과 업로드 자료의 범위를 넘어 임의로 확장하지 않습니다.
 
@@ -75,7 +77,7 @@
 - 학습자 수준 또는 선수 지식
 - 총 훈련시간, 총 차시, 이론·실습 비율
 - 이번 차시의 **학습목표**
-- 관련 **NCS 능력단위** 또는 핵심 수행 내용
+- NCS 기반 강의인 경우 관련 **NCS 능력단위와 대상 수행준거**
 - 교안·실습·평가에서 다룰 핵심 주제별 근거 검색어 1~5개
 - 수업 근거로 쓸 교재 자료 (Markdown · TXT · PDF, 파일당 최대 20MB)
 
@@ -185,18 +187,25 @@ python scripts\check_deployment.py http://localhost:8000
 | Method | Endpoint | 설명 |
 |:---|:---|:---|
 | `GET` | `/health` · `/health/rag` | 서비스 · RAG 저장소 상태 확인 |
+| `GET` | `/api/ncs/catalog/search` · `/api/ncs/catalog/{unit_code}` | NCS 능력단위 검색 및 수행준거 조회 |
 | `POST` | `/api/projects` | 과정 / 차시 프로젝트 생성 |
 | `POST` | `/api/projects/{id}/materials` | 교재 업로드 및 chunk 생성 |
 | `POST` | `/api/projects/{id}/rag/retrieve` | 프로젝트 우선 · baseline 보조 근거 검색 |
 | `POST` | `/api/projects/{id}/rag/generate` | 단일·다중 query 검색과 패키지 생성 또는 기존 retrieval run 재사용 |
 | `POST` | `/api/packages/{id}/regenerate` | 자연어 지시 기반 새 패키지 생성 |
+| `GET` | `/api/projects/{id}/ncs-coverage` | 최신 NCS 패키지의 수행준거 커버리지 조회 |
 | `GET` | `/api/packages/{id}/export.docx` · `export.pptx` | 산출물 다운로드 |
 
-> 전체 엔드포인트는 [Swagger UI](http://34.47.92.210:8000/docs)에서 확인할 수 있습니다.
+> 전체 엔드포인트는 [Swagger UI](https://34.47.92.210.nip.io/docs)에서 확인할 수 있습니다.
 
 운영 UI는 프로젝트 입력의 `retrieval_queries`를 교재 업로드 직후 `/rag/generate`에 전달합니다. 서버는 query별 검색 결과를 하나의 retrieval run으로 병합하고 중복 chunk를 제거합니다. `/rag/retrieve`와 retrieval run 기반 생성은 API 호환성과 진단 용도로 유지합니다.
 
-> 운영 Supabase에는 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql)을 API 배포 전에 적용해야 합니다.
+운영 Supabase에는 API 배포 전 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql)과 [`006_ncs_course_specialization.sql`](supabase/migrations/006_ncs_course_specialization.sql)을 순서대로 적용해야 합니다. NCS catalog는 migration 적용 후 다음 명령으로 생성·적재합니다.
+
+```powershell
+python scripts\prepare_ncs_catalog.py
+python scripts\prepare_ncs_catalog.py --upload
+```
 
 ## 📁 프로젝트 구조
 
@@ -233,6 +242,7 @@ GitHub Actions에서 테스트와 배포를 분리해 운영합니다.
 - 🏗️ [구현명세서](docs/02_implementation-readiness/01_구현명세서.md)
 - 🔎 [RAG 구축 및 연동 기획서](docs/02_implementation-readiness/07_RAG_구축_연동_기획서.md)
 - 🗂️ [NCS 확장 데이터셋 처리 및 RAG 검증 결과](docs/02_implementation-readiness/09_NCS_확장_데이터셋_처리_검증_결과.md)
+- [NCS 특화 기능 보완 기획서 및 구현 현황](docs/02_implementation-readiness/10_NCS_특화_기능_보완_기획서.md)
 - ✅ [MVP 품질 평가 결과](docs/04_validation/01_MVP_품질_평가_결과.md)
 - 🚀 [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
 

@@ -62,6 +62,21 @@ class SupabaseMigrationTests(unittest.TestCase):
         self.assertIn("jsonb_typeof(retrieval_queries) = 'array'", sql)
         self.assertIn("jsonb_array_length(retrieval_queries) <= 5", sql)
 
+    def test_ncs_specialization_migration_adds_course_and_catalog_contracts(self):
+        sql = (
+            ROOT / "supabase" / "migrations" / "006_ncs_course_specialization.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("course_type text", sql)
+        self.assertIn("lessonpack_projects_ncs_payload_check", sql)
+        self.assertIn("jsonb_array_length(ncs_units) between 1 and 5", sql)
+        self.assertIn("ncs_unit_codes jsonb", sql)
+        self.assertIn("catalog_versions jsonb", sql)
+        self.assertIn("where project.project_id = retrieval.project_id", sql)
+        self.assertIn("public.lessonpack_ncs_catalog", sql)
+        self.assertIn("public.lessonpack_ncs_criteria", sql)
+        self.assertIn("criterion_code text primary key", sql)
+
 
 if __name__ == "__main__":
     unittest.main()

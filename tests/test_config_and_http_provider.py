@@ -131,11 +131,18 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
         )
         client = TestClient(create_app(app_config=config))
         project_payload = ProjectCreate(
+            course_type="ncs",
             course_title="Generative AI Python Basics",
             lesson_title="Python functions",
             learner_profile="Beginner learners",
             learning_objectives=["Explain function inputs and returns."],
-            ncs_units=[NCSUnit(unit_code="MVP-NCS-001", unit_name="AI basics", elements=[])],
+            ncs_units=[
+                NCSUnit(
+                    unit_code="MVP-NCS-001",
+                    unit_name="AI basics",
+                    elements=["Explain basic AI concepts."],
+                )
+            ],
         ).model_dump()
         created = client.post("/api/projects", json=project_payload)
         project_id = created.json()["project_id"]

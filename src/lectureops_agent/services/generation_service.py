@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from lectureops_agent.models.schemas import (
     Assessment,
     CitationDetail,
+    CourseType,
     GenerationLog,
     LessonPackage,
     LessonPlan,
@@ -18,6 +19,9 @@ from lectureops_agent.models.schemas import (
     MaterialChunk,
     MultipleChoiceQuestion,
     NCSAlignment,
+    NCSCoverageReport,
+    NCSCriterionCoverage,
+    NCSSourceStatus,
     PackageStatus,
     PerformanceTask,
     Practice,
@@ -40,6 +44,7 @@ class _ProviderLectureFlowItem(BaseModel):
     duration_min: int = Field(ge=1)
     content: str = Field(min_length=1)
     citation_ids: list[str] = Field(min_length=1)
+    ncs_criteria: list[str] = Field(default_factory=list)
 
 
 class _ProviderLessonPlan(BaseModel):
@@ -56,6 +61,7 @@ class _ProviderPractice(BaseModel):
     submission: str = Field(min_length=1)
     rubric: list[str] = Field(min_length=3, max_length=5)
     citation_ids: list[str] = Field(min_length=1)
+    ncs_criteria: list[str] = Field(default_factory=list)
 
 
 class _ProviderMultipleChoiceQuestion(BaseModel):
@@ -66,6 +72,7 @@ class _ProviderMultipleChoiceQuestion(BaseModel):
     answer_index: int = Field(ge=0, le=3)
     explanation: str = Field(min_length=1)
     citation_ids: list[str] = Field(min_length=1)
+    ncs_criteria: list[str] = Field(default_factory=list)
 
 
 class _ProviderPerformanceTask(BaseModel):
@@ -75,6 +82,7 @@ class _ProviderPerformanceTask(BaseModel):
     description: str = Field(min_length=1)
     rubric: list[str] = Field(min_length=3, max_length=5)
     citation_ids: list[str] = Field(min_length=1)
+    ncs_criteria: list[str] = Field(default_factory=list)
 
 
 class _ProviderAssessment(BaseModel):
@@ -148,6 +156,11 @@ def generate_lesson_package_with_log(
             "package_id": package_id,
             "generation_attempt": attempt,
             "operation": "package_revision" if source_package is not None else "package_generation",
+            "course_type": project.course_type.value,
+            "ncs_unit_codes": [unit.unit_code for unit in project.ncs_units],
+            "ncs_source_statuses": list(
+                dict.fromkeys(unit.source_status.value for unit in project.ncs_units)
+            ),
             "source_package_id": source_package.package_id if source_package is not None else None,
             "revision_instruction_characters": len(revision_instruction or "") or None,
         }
@@ -161,6 +174,17 @@ def generate_lesson_package_with_log(
             provider_response,
             allowed_citation_ids=allowed_citation_ids,
         )
+        if provider_draft is not None and project.course_type == CourseType.NCS:
+            validation_error = _ncs_provider_alignment_validation_error(
+                provider_draft,
+                project=project,
+            )
+            if validation_error:
+                provider_draft = None
+        elif provider_draft is not None and project.course_type == CourseType.GENERAL:
+            validation_error = _general_course_content_validation_error(provider_draft)
+            if validation_error:
+                provider_draft = None
         if provider_draft is not None and source_package is not None:
             candidate_package = _build_package(
                 project=project,
@@ -238,8 +262,20 @@ def build_generation_prompt(
     intro_duration, development_duration, closing_duration = _lesson_flow_durations(lesson_duration)
     objective_text = "\n".join(f"- {objective}" for objective in project.learning_objectives)
     ncs_text = "\n".join(
-        f"- {unit.unit_code} {unit.unit_name}: {', '.join(unit.elements) if unit.elements else '세부 요소 미기재'}"
+        f"- {unit.unit_code} {unit.unit_name} [{unit.source_status.value}; "
+        f"version={unit.catalog_version or 'unconfirmed'}]\n"
+        f"  대상 수행준거: {', '.join(unit.target_criteria)}"
         for unit in project.ncs_units
+    )
+    standard_context = (
+        "Course standard: NCS-based lesson\n"
+        "Selected NCS units and target performance criteria:\n"
+        f"{ncs_text}"
+        if project.course_type == CourseType.NCS
+        else (
+            "Course standard: General non-NCS lesson\n"
+            "Do not claim, infer, or output NCS unit codes, NCS performance criteria, or NCS alignment."
+        )
     )
     retrieval_query_text = "\n".join(f"- {query}" for query in project.retrieval_queries)
     evidence_lines: list[str] = []
@@ -296,8 +332,7 @@ def build_generation_prompt(
         f"Delivery ratio: theory {project.theory_ratio_percent}% and practice {project.practice_ratio_percent}%.\n"
         "Learning objectives:\n"
         f"{objective_text}\n"
-        "NCS units:\n"
-        f"{ncs_text or '- NCS unit not provided'}\n"
+        f"{standard_context}\n"
         "RAG focus queries:\n"
         f"{retrieval_query_text or '- Use the lesson title and learning objectives'}\n"
         "Retrieved evidence chunks:\n"
@@ -306,15 +341,17 @@ def build_generation_prompt(
         f"{revision_context}"
         "Return one JSON object only, without Markdown fences or explanatory text. Use this exact schema:\n"
         f'{{"lesson_plan":{{"lecture_flow":[{{"section":"도입","duration_min":{intro_duration},'
-        f'"content":"...","citation_ids":["chunk-id"]}},{{"section":"전개","duration_min":{development_duration},'
-        f'"content":"...","citation_ids":["chunk-id"]}},{{"section":"정리","duration_min":{closing_duration},'
-        '"content":"...","citation_ids":["chunk-id"]}]},'
+        f'"content":"...","citation_ids":["chunk-id"],"ncs_criteria":["..."]}},'
+        f'{{"section":"전개","duration_min":{development_duration},"content":"...",'
+        f'"citation_ids":["chunk-id"],"ncs_criteria":["..."]}},'
+        f'{{"section":"정리","duration_min":{closing_duration},"content":"...",'
+        '"citation_ids":["chunk-id"],"ncs_criteria":["..."]}]},'
         '"practice":{"scenario":"...","steps":["...","...","..."],"submission":"...",'
-        '"rubric":["...","...","..."],"citation_ids":["chunk-id"]},'
+        '"rubric":["...","...","..."],"citation_ids":["chunk-id"],"ncs_criteria":["..."]},'
         '"assessment":{"multiple_choice":[{"question":"...","options":["...","...","...","..."],'
-        '"answer_index":0,"explanation":"...","citation_ids":["chunk-id"]}],'
+        '"answer_index":0,"explanation":"...","citation_ids":["chunk-id"],"ncs_criteria":["..."]}],'
         '"performance_task":{"title":"...","description":"...","rubric":["...","...","..."],'
-        '"citation_ids":["chunk-id"]}}}\n'
+        '"citation_ids":["chunk-id"],"ncs_criteria":["..."]}}}\n'
         "Requirements: lecture_flow must contain exactly 3 items and multiple_choice exactly 5 items. "
         f"The three duration_min values must total exactly {lesson_duration} minutes. Balance explanatory theory and "
         f"learner practice according to the requested {project.theory_ratio_percent}:{project.practice_ratio_percent} ratio. "
@@ -322,9 +359,13 @@ def build_generation_prompt(
         "inside values. Use only citation IDs shown above, and attach each citation only to content directly "
         "supported by that chunk. Do not introduce proper nouns, numbers, laws, or certifications absent from "
         "the evidence. User-uploaded material is valid project evidence, but it is not automatically an official "
-        "NCS source. Treat user-entered NCS codes, names, and elements as planning constraints unless an evidence "
-        "chunk explicitly identifies an official NCS source. Never invent official NCS performance criteria. "
-        "Keep the practice and assessments aligned with the stated learning objectives and NCS units. "
+        "NCS source. For NCS courses, treat selected target criteria as planning constraints unless an evidence "
+        "chunk explicitly identifies an official NCS source, and never invent official NCS performance criteria. "
+        "For NCS courses, every ncs_criteria value must exactly match a selected target criterion, every generated "
+        "item must contain at least one ncs_criteria value, and every selected criterion must appear in at least one "
+        "assessment item. For general courses, use an empty ncs_criteria array and do not mention NCS at all. "
+        "Keep the practice and assessments aligned with the stated "
+        "learning objectives and, only in NCS mode, the selected target criteria. "
         "Include every required grounded practice concept verbatim in the practice scenario, steps, submission, or rubric."
         f"{revision_emphasis}"
     )
@@ -339,6 +380,7 @@ def _revision_source_payload(package: LessonPackage) -> dict:
                     "duration_min": flow.duration_min,
                     "content": flow.content,
                     "citation_ids": flow.citation_ids,
+                    "ncs_criteria": _alignment_criteria(flow.ncs_alignment),
                 }
                 for flow in package.lesson_plan.lecture_flow
             ]
@@ -349,6 +391,7 @@ def _revision_source_payload(package: LessonPackage) -> dict:
             "submission": package.practice.submission,
             "rubric": package.practice.rubric,
             "citation_ids": package.practice.citation_ids,
+            "ncs_criteria": _alignment_criteria(package.practice.ncs_alignment),
         },
         "assessment": {
             "multiple_choice": [
@@ -358,6 +401,7 @@ def _revision_source_payload(package: LessonPackage) -> dict:
                     "answer_index": question.answer_index,
                     "explanation": question.explanation,
                     "citation_ids": question.citation_ids,
+                    "ncs_criteria": _alignment_criteria(question.ncs_alignment),
                 }
                 for question in package.assessment.multiple_choice
             ],
@@ -366,6 +410,9 @@ def _revision_source_payload(package: LessonPackage) -> dict:
                 "description": package.assessment.performance_task.description,
                 "rubric": package.assessment.performance_task.rubric,
                 "citation_ids": package.assessment.performance_task.citation_ids,
+                "ncs_criteria": _alignment_criteria(
+                    package.assessment.performance_task.ncs_alignment
+                ),
             },
         },
     }
@@ -411,7 +458,10 @@ def _build_package(
     practice_citations = _citation_ids_for(retrieved_chunks, preferred_index=0, limit=3)
     alignments = _ncs_alignments(project)
     primary_alignment = alignments[:1]
-    alignment_text = _alignment_summary(primary_alignment)
+    alignment_text = _alignment_summary(project=project, alignments=primary_alignment)
+    standard_label = (
+        "NCS 수행 기준" if project.course_type == CourseType.NCS else "차시 학습목표"
+    )
     primary_objective = project.learning_objectives[0]
     practice_keywords = _practice_keywords(project=project, retrieved_chunks=retrieved_chunks)
     practice_keyword_text = ", ".join(practice_keywords)
@@ -428,7 +478,7 @@ def _build_package(
                 duration_min=intro_duration,
                 content=(
                     f"{project.course_title} 과정에서 이번 차시의 학습목표를 안내한다. "
-                    f"학습자는 제시된 목표를 확인하고, 차시 활동을 {alignment_text}의 수행 기준과 연결한다."
+                    f"학습자는 제시된 목표를 확인하고, 차시 활동을 {alignment_text}와 연결한다."
                 ),
                 citation_ids=intro_citations,
                 ncs_alignment=primary_alignment,
@@ -447,7 +497,10 @@ def _build_package(
             LectureFlowItem(
                 section="정리",
                 duration_min=closing_duration,
-                content="학습자가 작성한 코드, 실행 결과, 개념 설명을 기준으로 학습목표와 NCS 수행 기준 충족 여부를 점검한다.",
+                content=(
+                    "학습자가 작성한 결과물, 실행 결과, 개념 설명을 기준으로 "
+                    f"학습목표와 {standard_label} 충족 여부를 점검한다."
+                ),
                 citation_ids=closing_citations,
                 ncs_alignment=primary_alignment,
             ),
@@ -462,11 +515,11 @@ def _build_package(
         steps=[
             f"근거 자료에서 다음 항목과 관련된 핵심 개념을 3개 선정한다: {practice_keyword_text}.",
             "선정한 개념을 적용한 결과물을 작성하고 정상 동작 여부를 확인한다.",
-            "실행 결과를 기록하고 학습목표 및 NCS 수행 기준과 연결해 설명한다.",
+            f"실행 결과를 기록하고 학습목표 및 {standard_label}과 연결해 설명한다.",
         ],
         submission=f"실습 결과물, 실행 결과, 핵심 개념 설명 3문장. 반영 요소: {practice_keyword_text}.",
         rubric=[
-            f"근거 자료와 NCS 수행 기준을 정확히 반영했다. 확인 요소: {practice_keyword_text}.",
+            f"근거 자료와 {standard_label}을 정확히 반영했다. 확인 요소: {practice_keyword_text}.",
             "실습 절차와 실행 결과를 다른 학습자가 재현할 수 있다.",
             "학습목표와 제출물이 직접 연결된다.",
         ],
@@ -494,7 +547,11 @@ def _build_package(
                 ncs_alignment=primary_alignment,
             ),
             MultipleChoiceQuestion(
-                question=f"NCS 능력단위 '{primary_alignment[0].unit_name if primary_alignment else '미지정'}'과 가장 직접적으로 연결되는 활동은 무엇인가?",
+                question=(
+                    f"NCS 능력단위 '{primary_alignment[0].unit_name}'과 가장 직접적으로 연결되는 활동은 무엇인가?"
+                    if primary_alignment
+                    else "학습목표와 교재 근거에 가장 직접적으로 연결되는 활동은 무엇인가?"
+                ),
                 options=[
                     "근거 자료의 개념을 활용해 재현 가능한 실습 절차를 작성한다.",
                     "수업과 무관한 고급 이론만 암기한다.",
@@ -502,7 +559,11 @@ def _build_package(
                     "출처를 제거하고 문장을 다시 작성한다.",
                 ],
                 answer_index=0,
-                explanation="NCS 기반 산출물은 수행 가능한 활동과 평가 기준으로 연결되어야 한다.",
+                explanation=(
+                    "NCS 기반 산출물은 수행 가능한 활동과 평가 기준으로 연결되어야 한다."
+                    if primary_alignment
+                    else "일반 강의 산출물도 학습목표, 활동, 평가 기준이 일관되게 연결되어야 한다."
+                ),
                 citation_ids=rotated_citations[1],
                 ncs_alignment=primary_alignment,
             ),
@@ -552,7 +613,7 @@ def _build_package(
             rubric=[
                 "근거 자료의 핵심 개념을 코드와 설명에 정확히 반영했다.",
                 "실습 절차와 실행 결과가 재현 가능하다.",
-                "제출물이 학습목표와 NCS 수행 기준을 검증할 수 있다.",
+                f"제출물이 학습목표와 {standard_label}을 검증할 수 있다.",
             ],
             citation_ids=practice_citations,
             ncs_alignment=alignments,
@@ -562,6 +623,7 @@ def _build_package(
     fallback_package = LessonPackage(
         package_id=package_id,
         project_id=project.project_id,
+        course_type=project.course_type,
         status=status,
         lesson_plan=lesson_plan,
         practice=practice,
@@ -569,6 +631,7 @@ def _build_package(
         evidence_sources=_citation_details(retrieved_chunks),
         template_metadata=_template_metadata(project),
     )
+    fallback_package = _attach_ncs_coverage(project=project, package=fallback_package)
     if provider_draft is None:
         return fallback_package
     return _package_from_provider_draft(
@@ -644,6 +707,81 @@ def _build_schema_repair_prompt(
     )
 
 
+def _general_course_content_validation_error(draft: _ProviderPackageDraft) -> str:
+    if any(criteria for _, criteria in _provider_ncs_criteria_groups(draft)):
+        return "general course response must use empty ncs_criteria arrays"
+    learner_text = " ".join(
+        [
+            *(flow.content for flow in draft.lesson_plan.lecture_flow),
+            draft.practice.scenario,
+            *draft.practice.steps,
+            draft.practice.submission,
+            *draft.practice.rubric,
+            *(
+                value
+                for question in draft.assessment.multiple_choice
+                for value in [question.question, *question.options, question.explanation]
+            ),
+            draft.assessment.performance_task.title,
+            draft.assessment.performance_task.description,
+            *draft.assessment.performance_task.rubric,
+        ]
+    ).casefold()
+    forbidden = ["ncs", "국가직무능력표준", "능력단위", "수행준거"]
+    matched = [term for term in forbidden if term.casefold() in learner_text]
+    if matched:
+        return f"general course response must not include NCS claims: {matched}"
+    return ""
+
+
+def _ncs_provider_alignment_validation_error(
+    draft: _ProviderPackageDraft,
+    *,
+    project: Project,
+) -> str:
+    allowed = {
+        criterion
+        for unit in project.ncs_units
+        for criterion in unit.target_criteria
+    }
+    groups = _provider_ncs_criteria_groups(draft)
+    missing_items = [name for name, criteria in groups if not criteria]
+    provided = {criterion for _, criteria in groups for criterion in criteria}
+    unknown = sorted(provided - allowed)
+    uncovered = sorted(allowed - provided)
+    assessment_groups = groups[len(draft.lesson_plan.lecture_flow) + 1 :]
+    assessed = {criterion for _, criteria in assessment_groups for criterion in criteria}
+    unassessed = sorted(allowed - assessed)
+    errors: list[str] = []
+    if missing_items:
+        errors.append(f"items without ncs_criteria: {missing_items}")
+    if unknown:
+        errors.append(f"unselected ncs_criteria: {unknown}")
+    if uncovered:
+        errors.append(f"uncovered target criteria: {uncovered}")
+    if unassessed:
+        errors.append(f"target criteria missing from assessment: {unassessed}")
+    return "; ".join(errors)
+
+
+def _provider_ncs_criteria_groups(
+    draft: _ProviderPackageDraft,
+) -> list[tuple[str, list[str]]]:
+    groups = [
+        (f"lesson_plan.{flow.section}", flow.ncs_criteria)
+        for flow in draft.lesson_plan.lecture_flow
+    ]
+    groups.append(("practice", draft.practice.ncs_criteria))
+    groups.extend(
+        (f"assessment.mcq.{index}", question.ncs_criteria)
+        for index, question in enumerate(draft.assessment.multiple_choice, start=1)
+    )
+    groups.append(
+        ("assessment.performance_task", draft.assessment.performance_task.ncs_criteria)
+    )
+    return groups
+
+
 def _build_revision_repair_prompt(
     *,
     original_prompt: str,
@@ -677,8 +815,6 @@ def _package_from_provider_draft(
     provider_draft: _ProviderPackageDraft,
     status: PackageStatus,
 ) -> LessonPackage:
-    alignments = _ncs_alignments(project)
-    primary_alignment = alignments[:1]
     flow_durations = _scale_durations(
         [flow.duration_min for flow in provider_draft.lesson_plan.lecture_flow],
         project.lesson_duration_minutes,
@@ -692,7 +828,7 @@ def _package_from_provider_draft(
                 duration_min=flow_durations[index],
                 content=flow.content,
                 citation_ids=flow.citation_ids,
-                ncs_alignment=primary_alignment if index in {0, 2} else alignments,
+                ncs_alignment=_ncs_alignments_for_criteria(project, flow.ncs_criteria),
             )
             for index, flow in enumerate(provider_draft.lesson_plan.lecture_flow)
         ],
@@ -710,7 +846,10 @@ def _package_from_provider_draft(
         submission=practice_submission,
         rubric=provider_draft.practice.rubric,
         citation_ids=provider_draft.practice.citation_ids,
-        ncs_alignment=alignments,
+        ncs_alignment=_ncs_alignments_for_criteria(
+            project,
+            provider_draft.practice.ncs_criteria,
+        ),
     )
     assessment = Assessment(
         multiple_choice=[
@@ -720,7 +859,7 @@ def _package_from_provider_draft(
                 answer_index=question.answer_index,
                 explanation=question.explanation,
                 citation_ids=question.citation_ids,
-                ncs_alignment=alignments,
+                ncs_alignment=_ncs_alignments_for_criteria(project, question.ncs_criteria),
             )
             for question in provider_draft.assessment.multiple_choice
         ],
@@ -729,13 +868,17 @@ def _package_from_provider_draft(
             description=provider_draft.assessment.performance_task.description,
             rubric=provider_draft.assessment.performance_task.rubric,
             citation_ids=provider_draft.assessment.performance_task.citation_ids,
-            ncs_alignment=alignments,
+            ncs_alignment=_ncs_alignments_for_criteria(
+                project,
+                provider_draft.assessment.performance_task.ncs_criteria,
+            ),
         ),
     )
     lesson_duration = sum(flow.duration_min or 0 for flow in lesson_plan.lecture_flow)
-    return LessonPackage(
+    package = LessonPackage(
         package_id=package_id,
         project_id=project.project_id,
+        course_type=project.course_type,
         status=status,
         lesson_plan=lesson_plan,
         practice=practice,
@@ -743,6 +886,7 @@ def _package_from_provider_draft(
         evidence_sources=_citation_details(retrieved_chunks),
         template_metadata=_template_metadata(project, lesson_duration_min=lesson_duration or None),
     )
+    return _attach_ncs_coverage(project=project, package=package)
 
 
 def _template_metadata(
@@ -838,22 +982,128 @@ def _optional_metadata(chunk: MaterialChunk, key: str) -> str | None:
 
 
 def _ncs_alignments(project: Project) -> list[NCSAlignment]:
+    return _ncs_alignments_for_criteria(
+        project,
+        [criterion for unit in project.ncs_units for criterion in unit.target_criteria],
+    )
+
+
+def _ncs_alignments_for_criteria(
+    project: Project,
+    criteria: list[str],
+) -> list[NCSAlignment]:
+    if project.course_type != CourseType.NCS:
+        return []
+    selected = set(criteria)
     alignments: list[NCSAlignment] = []
     for unit in project.ncs_units:
-        criteria = unit.elements or [f"{unit.unit_name} 능력단위와 차시 학습목표를 연결한다."]
-        alignments.append(
-            NCSAlignment(
-                unit_code=unit.unit_code,
-                unit_name=unit.unit_name,
-                performance_criteria=criteria,
+        matched = [criterion for criterion in unit.target_criteria if criterion in selected]
+        if matched:
+            alignments.append(
+                NCSAlignment(
+                    unit_code=unit.unit_code,
+                    unit_name=unit.unit_name,
+                    performance_criteria=matched,
+                )
             )
-        )
     return alignments
 
 
-def _alignment_summary(alignments: list[NCSAlignment]) -> str:
+def _alignment_criteria(alignments: list[NCSAlignment]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            criterion
+            for alignment in alignments
+            for criterion in alignment.performance_criteria
+        )
+    )
+
+
+def _attach_ncs_coverage(*, project: Project, package: LessonPackage) -> LessonPackage:
+    if project.course_type != CourseType.NCS:
+        return package.model_copy(update={"ncs_coverage": None})
+    items: list[NCSCriterionCoverage] = []
+    for unit in project.ncs_units:
+        for criterion in unit.target_criteria:
+            lesson_sections = [
+                flow.section
+                for flow in package.lesson_plan.lecture_flow
+                if _alignment_contains(
+                    flow.ncs_alignment,
+                    unit_code=unit.unit_code,
+                    criterion=criterion,
+                )
+            ]
+            practice = _alignment_contains(
+                package.practice.ncs_alignment,
+                unit_code=unit.unit_code,
+                criterion=criterion,
+            )
+            assessment_items = [
+                f"객관식 {index}"
+                for index, question in enumerate(package.assessment.multiple_choice, start=1)
+                if _alignment_contains(
+                    question.ncs_alignment,
+                    unit_code=unit.unit_code,
+                    criterion=criterion,
+                )
+            ]
+            if _alignment_contains(
+                package.assessment.performance_task.ncs_alignment,
+                unit_code=unit.unit_code,
+                criterion=criterion,
+            ):
+                assessment_items.append("수행평가")
+            items.append(
+                NCSCriterionCoverage(
+                    unit_code=unit.unit_code,
+                    unit_name=unit.unit_name,
+                    performance_criterion=criterion,
+                    lesson_sections=lesson_sections,
+                    practice=practice,
+                    assessment_items=assessment_items,
+                    covered=bool(lesson_sections or practice or assessment_items),
+                )
+            )
+    total = len(items)
+    covered = sum(item.covered for item in items)
+    assessed = sum(bool(item.assessment_items) for item in items)
+    source_statuses = list(dict.fromkeys(unit.source_status for unit in project.ncs_units))
+    warnings: list[str] = []
+    if any(status != NCSSourceStatus.VERIFIED for status in source_statuses):
+        warnings.append("일부 NCS 기준은 사용자 제공 또는 확인 필요 상태입니다.")
+    if total and covered / total < 0.9:
+        warnings.append("대상 수행준거 설계 커버리지가 90% 미만입니다.")
+    if total and assessed < total:
+        warnings.append("평가에 연결되지 않은 대상 수행준거가 있습니다.")
+    report = NCSCoverageReport(
+        target_criteria_count=total,
+        covered_criteria_count=covered,
+        assessment_criteria_count=assessed,
+        coverage=round(covered / total, 4) if total else 0.0,
+        assessment_coverage=round(assessed / total, 4) if total else 0.0,
+        source_statuses=source_statuses,
+        items=items,
+        warnings=warnings,
+    )
+    return package.model_copy(update={"ncs_coverage": report})
+
+
+def _alignment_contains(
+    alignments: list[NCSAlignment],
+    *,
+    unit_code: str,
+    criterion: str,
+) -> bool:
+    return any(
+        alignment.unit_code == unit_code and criterion in alignment.performance_criteria
+        for alignment in alignments
+    )
+
+
+def _alignment_summary(*, project: Project, alignments: list[NCSAlignment]) -> str:
     if not alignments:
-        return "등록된 NCS 능력단위 정보 없음"
+        return "차시 학습목표"
     return "; ".join(f"{item.unit_code} {item.unit_name}" for item in alignments)
 
 
@@ -901,7 +1151,14 @@ def _practice_source_text(*, project: Project, retrieved_chunks: list[MaterialCh
         " ".join(project.learning_objectives),
     ]
     for unit in project.ncs_units:
-        values.extend([unit.unit_code, unit.unit_name, " ".join(unit.elements)])
+        values.extend(
+            [
+                unit.unit_code,
+                unit.unit_name,
+                " ".join(unit.elements),
+                " ".join(unit.target_criteria),
+            ]
+        )
     for chunk in retrieved_chunks:
         values.extend(
             [

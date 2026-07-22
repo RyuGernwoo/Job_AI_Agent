@@ -14,10 +14,59 @@ class PackageStatus(str, Enum):
     REGENERATED = "regenerated"
 
 
+class CourseType(str, Enum):
+    NCS = "ncs"
+    GENERAL = "general"
+
+
+class NCSSourceStatus(str, Enum):
+    VERIFIED = "verified"
+    USER_PROVIDED = "user_provided"
+    NEEDS_REVIEW = "needs_review"
+
+
 class NCSUnit(BaseModel):
     unit_code: str = Field(min_length=1)
     unit_name: str = Field(min_length=1)
     elements: list[str] = Field(default_factory=list)
+    target_criteria: list[str] = Field(default_factory=list)
+    source_status: NCSSourceStatus = NCSSourceStatus.NEEDS_REVIEW
+    catalog_version: str | None = None
+    classification: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_unit(self) -> "NCSUnit":
+        self.unit_code = " ".join(self.unit_code.split())
+        self.unit_name = " ".join(self.unit_name.split())
+        self.elements = _normalize_unique_strings(self.elements)
+        self.target_criteria = _normalize_unique_strings(self.target_criteria or self.elements)
+        self.catalog_version = (
+            " ".join(self.catalog_version.split()) if self.catalog_version else None
+        )
+        self.classification = {
+            str(key).strip(): " ".join(str(value).split())
+            for key, value in self.classification.items()
+            if str(key).strip() and str(value).strip()
+        }
+        return self
+
+
+class NCSCatalogCriterion(BaseModel):
+    criterion_code: str = Field(min_length=1)
+    element_code: str | None = None
+    element_name: str | None = None
+    text: str = Field(min_length=1)
+
+
+class NCSCatalogUnit(BaseModel):
+    unit_code: str = Field(min_length=1)
+    unit_name: str = Field(min_length=1)
+    definition: str | None = None
+    classification: dict[str, str] = Field(default_factory=dict)
+    level: int | None = Field(default=None, ge=1, le=8)
+    catalog_version: str | None = None
+    source_url: str | None = None
+    criteria: list[NCSCatalogCriterion] = Field(default_factory=list)
 
 
 class NCSAlignment(BaseModel):
@@ -25,6 +74,27 @@ class NCSAlignment(BaseModel):
     unit_name: str = Field(min_length=1)
     performance_criteria: list[str] = Field(default_factory=list)
     source_md: str | None = None
+
+
+class NCSCriterionCoverage(BaseModel):
+    unit_code: str = Field(min_length=1)
+    unit_name: str = Field(min_length=1)
+    performance_criterion: str = Field(min_length=1)
+    lesson_sections: list[str] = Field(default_factory=list)
+    practice: bool = False
+    assessment_items: list[str] = Field(default_factory=list)
+    covered: bool = False
+
+
+class NCSCoverageReport(BaseModel):
+    target_criteria_count: int = Field(ge=0)
+    covered_criteria_count: int = Field(ge=0)
+    assessment_criteria_count: int = Field(ge=0)
+    coverage: float = Field(ge=0.0, le=1.0)
+    assessment_coverage: float = Field(ge=0.0, le=1.0)
+    source_statuses: list[NCSSourceStatus] = Field(default_factory=list)
+    items: list[NCSCriterionCoverage] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class CitationDetail(BaseModel):
@@ -50,6 +120,7 @@ class StandardTemplateMetadata(BaseModel):
 
 
 class ProjectCreate(BaseModel):
+    course_type: CourseType
     course_title: str = Field(min_length=1)
     lesson_title: str = Field(min_length=1)
     learner_profile: str = Field(min_length=1)
@@ -58,7 +129,7 @@ class ProjectCreate(BaseModel):
     theory_ratio_percent: int = Field(default=30, ge=0, le=100)
     practice_ratio_percent: int = Field(default=70, ge=0, le=100)
     learning_objectives: list[str] = Field(min_length=1)
-    ncs_units: list[NCSUnit] = Field(default_factory=list)
+    ncs_units: list[NCSUnit] = Field(default_factory=list, max_length=5)
     retrieval_queries: list[str] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
@@ -67,7 +138,25 @@ class ProjectCreate(BaseModel):
             raise ValueError("theory_ratio_percent and practice_ratio_percent must total 100")
         if self.total_training_hours * 60 / self.total_lessons < 15:
             raise ValueError("average lesson duration must be at least 15 minutes")
+        self.learning_objectives = _normalize_unique_strings(self.learning_objectives)
+        if not self.learning_objectives:
+            raise ValueError("learning_objectives must include at least one non-empty value")
         self.retrieval_queries = _normalize_unique_strings(self.retrieval_queries)
+        if self.course_type == CourseType.NCS:
+            if not self.ncs_units:
+                raise ValueError("ncs course requires at least one NCS unit")
+            unit_codes: set[str] = set()
+            for unit in self.ncs_units:
+                key = unit.unit_code.casefold()
+                if key in unit_codes:
+                    raise ValueError("ncs unit codes must be unique")
+                unit_codes.add(key)
+                if not unit.target_criteria:
+                    raise ValueError(
+                        f"NCS unit {unit.unit_code} requires at least one target criterion"
+                    )
+        elif self.ncs_units:
+            raise ValueError("general course must not include NCS units")
         return self
 
     @property
@@ -77,6 +166,7 @@ class ProjectCreate(BaseModel):
     def to_project(self, project_id: str | None = None) -> "Project":
         return Project(
             project_id=project_id or str(uuid4()),
+            course_type=self.course_type,
             course_title=self.course_title,
             lesson_title=self.lesson_title,
             learner_profile=self.learner_profile,
@@ -155,6 +245,9 @@ class RetrievalRun(BaseModel):
     project_id: str = Field(min_length=1)
     query: str = Field(min_length=1)
     normalized_query: str = Field(min_length=1)
+    course_type: CourseType = CourseType.GENERAL
+    ncs_unit_codes: list[str] = Field(default_factory=list)
+    catalog_versions: list[str] = Field(default_factory=list)
     evidence: list[RetrievedEvidence] = Field(default_factory=list)
     created_at: datetime
 
@@ -164,6 +257,8 @@ class RAGRetrieveResponse(BaseModel):
     trace_id: str = Field(min_length=1)
     project_id: str = Field(min_length=1)
     query: str = Field(min_length=1)
+    course_type: CourseType = CourseType.GENERAL
+    ncs_unit_codes: list[str] = Field(default_factory=list)
     evidence: list[RetrievedEvidence] = Field(default_factory=list)
     created_at: datetime
 
@@ -241,11 +336,13 @@ class Assessment(BaseModel):
 class LessonPackage(BaseModel):
     package_id: str = Field(min_length=1)
     project_id: str = Field(min_length=1)
+    course_type: CourseType = CourseType.GENERAL
     status: PackageStatus = PackageStatus.GENERATED
     lesson_plan: LessonPlan
     practice: Practice
     assessment: Assessment
     evidence_sources: list[CitationDetail] = Field(default_factory=list)
+    ncs_coverage: NCSCoverageReport | None = None
     template_metadata: StandardTemplateMetadata = Field(default_factory=StandardTemplateMetadata)
 
 

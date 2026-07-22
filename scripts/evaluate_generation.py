@@ -145,6 +145,7 @@ def _project_from_case(
 ):
     ncs_unit_id = str(case["input"].get("ncs_unit_id", ""))
     return ProjectCreate(
+        course_type="ncs",
         course_title=curriculum.get("course_title", "생성형 AI 활용 Python 기초"),
         lesson_title=curriculum.get("lesson_title", f"LessonPack AI 평가 케이스 {case['case_id']}"),
         learner_profile=curriculum.get("learner_profile", "직업훈련 수강생"),
@@ -162,7 +163,11 @@ def _ncs_unit_from_data(*, ncs_unit_id: str, ncs_data: dict[str, Any]) -> NCSUni
                 unit_name=str(unit.get("unit_name", ncs_unit_id)),
                 elements=[str(topic) for topic in unit.get("learning_topics", [])],
             )
-    return NCSUnit(unit_code=ncs_unit_id or "MVP-NCS", unit_name=ncs_unit_id or "MVP NCS", elements=[])
+    return NCSUnit(
+        unit_code=ncs_unit_id or "MVP-NCS",
+        unit_name=ncs_unit_id or "MVP NCS",
+        elements=["차시 학습목표에 해당하는 수행 결과를 설명할 수 있다."],
+    )
 
 
 def _select_chunks_for_case(*, chunks, source_ids: list[str], chunks_per_source: int):

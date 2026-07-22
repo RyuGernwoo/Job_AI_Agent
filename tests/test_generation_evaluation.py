@@ -15,6 +15,7 @@ from lectureops_agent.services.generation_service import generate_lesson_package
 
 def sample_project() -> ProjectCreate:
     return ProjectCreate(
+        course_type="ncs",
         course_title="생성형 AI 활용 Python 기초",
         lesson_title="Python 자료구조와 자동화 실습",
         learner_profile="Python 기초 문법을 학습한 직업훈련 수강생",
@@ -103,6 +104,10 @@ class GenerationEvaluationTests(unittest.TestCase):
             "citation_required": True,
             "ncs_alignment_required": True,
             "min_ncs_alignment_coverage": 0.9,
+            "ncs_criterion_coverage_required": True,
+            "min_ncs_criterion_coverage": 0.9,
+            "ncs_assessment_coverage_required": True,
+            "min_ncs_assessment_coverage": 1.0,
             "source_metadata_required": True,
             "min_source_metadata_coverage": 1.0,
             "min_unique_citation_chunks": 2,
@@ -116,6 +121,8 @@ class GenerationEvaluationTests(unittest.TestCase):
         self.assertEqual(result["missing_citation_items"], [])
         self.assertEqual(result["citation_coverage"]["coverage"], 1.0)
         self.assertGreaterEqual(result["ncs_alignment_coverage"]["coverage"], 0.9)
+        self.assertEqual(result["ncs_criterion_coverage"]["coverage"], 1.0)
+        self.assertEqual(result["ncs_criterion_coverage"]["assessment_coverage"], 1.0)
         self.assertEqual(result["source_metadata_coverage"]["coverage"], 1.0)
         self.assertGreaterEqual(result["citation_diversity"]["unique_chunk_count"], 2)
         self.assertEqual(result["citation_source_resolution"]["coverage"], 1.0)

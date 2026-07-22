@@ -44,6 +44,8 @@ class MVPVerificationTests(unittest.TestCase):
             self.assertEqual(report["retrieval"]["average_required_concept_coverage"], 1.0)
             self.assertEqual(report["generation"]["case_pass_rate"], 1.0)
             self.assertEqual(report["generation"]["average_citation_coverage"], 1.0)
+            self.assertEqual(report["generation"]["average_ncs_criterion_coverage"], 1.0)
+            self.assertEqual(report["generation"]["average_ncs_assessment_coverage"], 1.0)
             self.assertEqual(report["generation"]["average_assessment_quality"], 1.0)
             self.assertEqual(report["generation"]["average_duration_alignment"], 1.0)
             self.assertTrue(report["demo"]["docx_exists"])

@@ -28,6 +28,7 @@ class StaticLLMProvider:
 
 class StructuredLLMProvider:
     name = "structured-test"
+    ncs_criterion = "Analyze requirements and write simple automation code."
 
     def __init__(self, citation_id: str) -> None:
         self.citation_id = citation_id
@@ -39,6 +40,7 @@ class StructuredLLMProvider:
             "answer_index": 0,
             "explanation": "호출 결과를 확인하면 반환값을 검증할 수 있다.",
             "citation_ids": [self.citation_id],
+            "ncs_criteria": [self.ncs_criterion],
         }
         payload = {
             "lesson_plan": {
@@ -48,18 +50,21 @@ class StructuredLLMProvider:
                         "duration_min": 10,
                         "content": "함수의 입력과 반환값을 실제 예제로 확인한다.",
                         "citation_ids": [self.citation_id],
+                        "ncs_criteria": [self.ncs_criterion],
                     },
                     {
                         "section": "전개",
                         "duration_min": 40,
                         "content": "매개변수를 받는 함수를 작성하고 호출 결과를 비교한다.",
                         "citation_ids": [self.citation_id],
+                        "ncs_criteria": [self.ncs_criterion],
                     },
                     {
                         "section": "정리",
                         "duration_min": 10,
                         "content": "작성한 함수의 입력과 반환값을 설명한다.",
                         "citation_ids": [self.citation_id],
+                        "ncs_criteria": [self.ncs_criterion],
                     },
                 ]
             },
@@ -69,6 +74,7 @@ class StructuredLLMProvider:
                 "submission": "소스 코드와 실행 결과를 제출한다.",
                 "rubric": ["함수가 입력을 받는다.", "결과를 반환한다.", "실행 결과가 재현된다."],
                 "citation_ids": [self.citation_id],
+                "ncs_criteria": [self.ncs_criterion],
             },
             "assessment": {
                 "multiple_choice": [question for _ in range(5)],
@@ -77,6 +83,7 @@ class StructuredLLMProvider:
                     "description": "입력값을 처리해 결과를 반환하는 함수를 작성한다.",
                     "rubric": ["요구사항을 충족한다.", "결과가 정확하다.", "코드 설명이 명확하다."],
                     "citation_ids": [self.citation_id],
+                    "ncs_criteria": [self.ncs_criterion],
                 },
             },
         }
@@ -98,8 +105,23 @@ class RepairingLLMProvider(StructuredLLMProvider):
         return super().generate(prompt=prompt)
 
 
+class MissingNCSCriteriaProvider(StructuredLLMProvider):
+    name = "missing-ncs-criteria-test"
+
+    def generate(self, *, prompt: str) -> str:
+        payload = json.loads(super().generate(prompt=prompt))
+        for flow in payload["lesson_plan"]["lecture_flow"]:
+            flow.pop("ncs_criteria")
+        payload["practice"].pop("ncs_criteria")
+        for question in payload["assessment"]["multiple_choice"]:
+            question.pop("ncs_criteria")
+        payload["assessment"]["performance_task"].pop("ncs_criteria")
+        return json.dumps(payload, ensure_ascii=False)
+
+
 def sample_project_create() -> ProjectCreate:
     return ProjectCreate(
+        course_type="ncs",
         course_title="Generative AI Python Basics",
         lesson_title="Python functions and prompt automation practice",
         learner_profile="Job training learners with basic Python experience",
@@ -218,6 +240,20 @@ class GenerationLogTests(unittest.TestCase):
             "매개변수를 받는 함수를 작성하고 호출 결과를 비교한다.",
         )
         self.assertEqual(result.log.citation_ids, [chunk.chunk_id])
+
+    def test_ncs_generation_rejects_structured_output_without_criterion_mapping(self):
+        project = sample_project_create().to_project(project_id="project-001")
+        chunk = sample_chunk(project.project_id)
+
+        result = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=[chunk],
+            llm_provider=MissingNCSCriteriaProvider(chunk.chunk_id),
+            package_id="package-missing-ncs-criteria",
+        )
+
+        self.assertFalse(result.log.structured_output_applied)
+        self.assertIn("items without ncs_criteria", result.log.schema_validation_errors[0])
 
     def test_fastapi_generate_stores_generation_log(self):
         provider = StaticLLMProvider()

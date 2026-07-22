@@ -6,6 +6,7 @@ from uuid import uuid4
 from lectureops_agent.models.schemas import (
     GenerationRun,
     MaterialDocument,
+    NCSCatalogUnit,
     Project,
     RetrievalRun,
 )
@@ -36,13 +37,22 @@ class RAGRepository(Protocol):
     def save_generation_run(self, run: GenerationRun) -> None:
         ...
 
+    def search_ncs_catalog(self, query: str, *, limit: int) -> list[NCSCatalogUnit]:
+        ...
+
+    def get_ncs_catalog_unit(self, unit_code: str) -> NCSCatalogUnit | None:
+        ...
+
 
 class InMemoryRAGRepository:
-    def __init__(self) -> None:
+    def __init__(self, *, ncs_catalog: list[NCSCatalogUnit] | None = None) -> None:
         self.projects: dict[str, Project] = {}
         self.documents: dict[str, MaterialDocument] = {}
         self.retrieval_runs: dict[str, RetrievalRun] = {}
         self.generation_runs: dict[str, GenerationRun] = {}
+        self.ncs_catalog: dict[str, NCSCatalogUnit] = {
+            unit.unit_code.casefold(): unit for unit in (ncs_catalog or [])
+        }
         self._document_counts: dict[str, int] = {}
 
     def readiness(self) -> dict[str, Any]:
@@ -72,6 +82,22 @@ class InMemoryRAGRepository:
     def save_generation_run(self, run: GenerationRun) -> None:
         self.generation_runs[run.package_id] = run
 
+    def search_ncs_catalog(self, query: str, *, limit: int) -> list[NCSCatalogUnit]:
+        normalized = " ".join(query.split()).casefold()
+        if not normalized:
+            return []
+        matches = [
+            unit
+            for unit in self.ncs_catalog.values()
+            if normalized in unit.unit_code.casefold()
+            or normalized in unit.unit_name.casefold()
+            or any(normalized in value.casefold() for value in unit.classification.values())
+        ]
+        return sorted(matches, key=lambda item: (item.unit_name, item.unit_code))[:limit]
+
+    def get_ncs_catalog_unit(self, unit_code: str) -> NCSCatalogUnit | None:
+        return self.ncs_catalog.get(unit_code.strip().casefold())
+
 
 class SupabaseRAGRepository:
     def __init__(
@@ -82,22 +108,25 @@ class SupabaseRAGRepository:
         documents_table: str = "lessonpack_documents",
         retrieval_runs_table: str = "lessonpack_retrieval_runs",
         generation_runs_table: str = "lessonpack_generation_runs",
+        ncs_catalog_table: str = "lessonpack_ncs_catalog",
     ) -> None:
         self._client = client
         self.projects_table = projects_table
         self.documents_table = documents_table
         self.retrieval_runs_table = retrieval_runs_table
         self.generation_runs_table = generation_runs_table
+        self.ncs_catalog_table = ncs_catalog_table
 
     def readiness(self) -> dict[str, Any]:
         tables = {
             self.projects_table: (
-                "project_id,total_training_hours,total_lessons,"
+                "project_id,course_type,total_training_hours,total_lessons,"
                 "theory_ratio_percent,practice_ratio_percent,retrieval_queries"
             ),
             self.documents_table: "document_id",
-            self.retrieval_runs_table: "run_id",
+            self.retrieval_runs_table: "run_id,course_type,ncs_unit_codes,catalog_versions",
             self.generation_runs_table: "package_id",
+            self.ncs_catalog_table: "unit_code,unit_name,catalog_version",
         }
         result: dict[str, Any] = {"ready": True, "tables": {}}
         for table_name, required_columns in tables.items():
@@ -115,6 +144,7 @@ class SupabaseRAGRepository:
     def save_project(self, project: Project) -> None:
         row = {
             "project_id": project.project_id,
+            "course_type": project.course_type.value,
             "course_title": project.course_title,
             "lesson_title": project.lesson_title,
             "learner_profile": project.learner_profile,
@@ -154,6 +184,9 @@ class SupabaseRAGRepository:
             "project_id": run.project_id,
             "query": run.query,
             "normalized_query": run.normalized_query,
+            "course_type": run.course_type.value,
+            "ncs_unit_codes": run.ncs_unit_codes,
+            "catalog_versions": run.catalog_versions,
             "evidence": [item.model_dump(mode="json") for item in run.evidence],
             "selected_chunk_ids": [item.chunk.chunk_id for item in run.evidence],
             "created_at": run.created_at.isoformat(),
@@ -177,6 +210,31 @@ class SupabaseRAGRepository:
             run.model_dump(mode="json"),
             on_conflict="package_id",
         )
+
+    def search_ncs_catalog(self, query: str, *, limit: int) -> list[NCSCatalogUnit]:
+        term = _postgrest_search_term(query)
+        if not term:
+            return []
+        response = (
+            self._client.table(self.ncs_catalog_table)
+            .select("*")
+            .or_(f"unit_code.ilike.%{term}%,unit_name.ilike.%{term}%")
+            .order("unit_name")
+            .limit(limit)
+            .execute()
+        )
+        return [NCSCatalogUnit.model_validate(row) for row in _response_data(response)]
+
+    def get_ncs_catalog_unit(self, unit_code: str) -> NCSCatalogUnit | None:
+        response = (
+            self._client.table(self.ncs_catalog_table)
+            .select("*")
+            .eq("unit_code", unit_code.strip())
+            .limit(1)
+            .execute()
+        )
+        rows = _response_data(response)
+        return NCSCatalogUnit.model_validate(rows[0]) if rows else None
 
     def _upsert(self, table_name: str, row: dict[str, Any], *, on_conflict: str) -> None:
         response = self._client.table(table_name).upsert(row, on_conflict=on_conflict).execute()
@@ -213,3 +271,12 @@ def _raise_for_supabase_error(response: Any) -> None:
         error = response.get("error")
     if error:
         raise RuntimeError(f"Supabase RAG repository request failed: {error}")
+
+
+def _postgrest_search_term(value: str) -> str:
+    normalized = " ".join(value.split())
+    return "".join(
+        character
+        for character in normalized
+        if character.isalnum() or character in {" ", "_", "-"}
+    )

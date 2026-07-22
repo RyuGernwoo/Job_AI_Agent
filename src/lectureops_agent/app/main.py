@@ -5,13 +5,14 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from lectureops_agent.config import LessonPackConfig, load_config
 from lectureops_agent.env import load_env_file
 from lectureops_agent.models.schemas import (
+    CourseType,
     GenerateRequest,
     GenerationLog,
     GenerationRun,
@@ -19,6 +20,10 @@ from lectureops_agent.models.schemas import (
     MaterialChunk,
     MaterialDocument,
     MaterialIngestResult,
+    NCSCatalogUnit,
+    NCSCoverageReport,
+    NCSSourceStatus,
+    NCSUnit,
     PackageRegenerateRequest,
     PackageRegenerateResponse,
     Project,
@@ -149,8 +154,37 @@ def create_app(
             "persistence": persistence,
         }
 
+    @app.get("/api/ncs/catalog/search", response_model=list[NCSCatalogUnit])
+    def search_ncs_catalog(
+        q: str = Query(min_length=2, max_length=100),
+        limit: int = Query(default=10, ge=1, le=30),
+    ) -> list[NCSCatalogUnit]:
+        try:
+            return rag_repository.search_ncs_catalog(q, limit=limit)
+        except Exception as exc:
+            logger.exception("NCS catalog search failed")
+            raise HTTPException(
+                status_code=503,
+                detail="NCS catalog search is temporarily unavailable.",
+            ) from exc
+
+    @app.get("/api/ncs/catalog/{unit_code}", response_model=NCSCatalogUnit)
+    def get_ncs_catalog_unit(unit_code: str) -> NCSCatalogUnit:
+        try:
+            unit = rag_repository.get_ncs_catalog_unit(unit_code)
+        except Exception as exc:
+            logger.exception("NCS catalog lookup failed")
+            raise HTTPException(
+                status_code=503,
+                detail="NCS catalog lookup is temporarily unavailable.",
+            ) from exc
+        if unit is None:
+            raise HTTPException(status_code=404, detail="NCS unit not found")
+        return unit
+
     @app.post("/api/projects", response_model=Project)
     def create_project(payload: ProjectCreate) -> Project:
+        payload = _resolve_verified_ncs_units(payload=payload, repository=rag_repository)
         project = payload.to_project()
         try:
             rag_repository.save_project(project)
@@ -304,12 +338,15 @@ def create_app(
                 status_code=422,
                 detail="검색 근거가 없습니다. 자료를 추가하거나 질의를 구체화하십시오.",
             )
+        _validate_ncs_generation_evidence(project, selected_evidence)
 
         with llm_trace_context(
             {
                 "trace_id": retrieval_run.trace_id,
                 "retrieval_run_id": retrieval_run.run_id,
                 "project_id": project_id,
+                "course_type": project.course_type.value,
+                "ncs_unit_codes": [unit.unit_code for unit in project.ncs_units],
             }
         ):
             result = generate_lesson_package_with_log(
@@ -345,6 +382,7 @@ def create_app(
     @app.post("/api/projects/{project_id}/generate", response_model=LessonPackage)
     def generate(project_id: str, payload: GenerateRequest) -> LessonPackage:
         project = _require_project(rag_repository, project_id)
+        _validate_ncs_generation_chunks(project, payload.retrieved_chunks)
         result = generate_lesson_package_with_log(
             project=project,
             retrieved_chunks=payload.retrieved_chunks,
@@ -360,6 +398,26 @@ def create_app(
         if package is None:
             raise HTTPException(status_code=404, detail="package not found")
         return package
+
+    @app.get(
+        "/api/projects/{project_id}/ncs-coverage",
+        response_model=NCSCoverageReport,
+    )
+    def get_project_ncs_coverage(project_id: str) -> NCSCoverageReport:
+        project = _require_project(rag_repository, project_id)
+        if project.course_type != CourseType.NCS:
+            raise HTTPException(status_code=409, detail="NCS coverage is available only for NCS courses")
+        package = next(
+            (
+                item
+                for item in reversed(list(packages.values()))
+                if item.project_id == project_id and item.ncs_coverage is not None
+            ),
+            None,
+        )
+        if package is None or package.ncs_coverage is None:
+            raise HTTPException(status_code=404, detail="NCS coverage report not found")
+        return package.ncs_coverage
 
     @app.get("/api/packages/{package_id}/generation-log", response_model=GenerationLog)
     def get_generation_log(package_id: str) -> GenerationLog:
@@ -392,6 +450,7 @@ def create_app(
                 status_code=422,
                 detail="수정 요청을 뒷받침할 검색 근거가 없습니다. 자료를 추가하거나 요청을 구체화하십시오.",
             )
+        _validate_ncs_generation_evidence(project, retrieval_run.evidence)
 
         try:
             with llm_trace_context(
@@ -400,6 +459,8 @@ def create_app(
                     "retrieval_run_id": retrieval_run.run_id,
                     "project_id": project.project_id,
                     "source_package_id": source_package.package_id,
+                    "course_type": project.course_type.value,
+                    "ncs_unit_codes": [unit.unit_code for unit in project.ncs_units],
                 }
             ):
                 result = generate_lesson_package_with_log(
@@ -559,6 +620,88 @@ def _require_project(repository: RAGRepository, project_id: str) -> Project:
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return project
+
+
+def _resolve_verified_ncs_units(
+    *,
+    payload: ProjectCreate,
+    repository: RAGRepository,
+) -> ProjectCreate:
+    if payload.course_type != CourseType.NCS:
+        return payload
+    resolved_units: list[NCSUnit] = []
+    for unit in payload.ncs_units:
+        if unit.source_status != NCSSourceStatus.VERIFIED:
+            resolved_units.append(unit)
+            continue
+        try:
+            catalog_unit = repository.get_ncs_catalog_unit(unit.unit_code)
+        except Exception as exc:
+            logger.exception("NCS unit verification failed")
+            raise HTTPException(
+                status_code=503,
+                detail="NCS catalog verification is temporarily unavailable.",
+            ) from exc
+        if catalog_unit is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"공식 NCS catalog에서 능력단위 {unit.unit_code}를 확인할 수 없습니다.",
+            )
+        available_criteria = {item.text for item in catalog_unit.criteria}
+        unavailable_criteria = [
+            criterion for criterion in unit.target_criteria if criterion not in available_criteria
+        ]
+        if unavailable_criteria:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "선택한 수행준거가 NCS catalog와 일치하지 않습니다.",
+                    "unit_code": unit.unit_code,
+                    "unavailable_criteria": unavailable_criteria,
+                },
+            )
+        resolved_units.append(
+            unit.model_copy(
+                update={
+                    "unit_name": catalog_unit.unit_name,
+                    "classification": catalog_unit.classification,
+                    "catalog_version": catalog_unit.catalog_version,
+                    "source_status": NCSSourceStatus.VERIFIED,
+                }
+            )
+        )
+    return payload.model_copy(update={"ncs_units": resolved_units})
+
+
+def _validate_ncs_generation_evidence(
+    project: Project,
+    evidence: list[RetrievedEvidence],
+) -> None:
+    _validate_ncs_generation_chunks(project, [item.chunk for item in evidence])
+
+
+def _validate_ncs_generation_chunks(project: Project, chunks: list[MaterialChunk]) -> None:
+    if project.course_type != CourseType.NCS:
+        return
+    requires_user_evidence = any(
+        unit.source_status != NCSSourceStatus.VERIFIED for unit in project.ncs_units
+    )
+    if not requires_user_evidence:
+        return
+    has_user_evidence = any(
+        chunk.project_id == project.project_id
+        or str(chunk.metadata.get("evidence_origin", "")).casefold() == "user_upload"
+        or str(chunk.metadata.get("evidence_authority", "")).casefold() == "user_provided"
+        for chunk in chunks
+    )
+    if not has_user_evidence:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "공식 확인 전 NCS 기준을 사용하는 강의에는 능력단위와 수행준거를 포함한 "
+                "사용자 자료 업로드가 필요합니다."
+            ),
+        )
 
 
 def _require_retrieval_run(

@@ -36,6 +36,8 @@ def run_mvp_verification(
     min_generation_quality_score: float = 0.9,
     min_citation_coverage: float = 0.9,
     min_ncs_alignment_coverage: float = 0.8,
+    min_ncs_criterion_coverage: float = 0.9,
+    min_ncs_assessment_coverage: float = 1.0,
     min_source_metadata_coverage: float = 0.9,
     min_assessment_quality: float = 1.0,
     min_duration_alignment: float = 0.9,
@@ -67,6 +69,8 @@ def run_mvp_verification(
         "min_generation_quality_score": min_generation_quality_score,
         "min_citation_coverage": min_citation_coverage,
         "min_ncs_alignment_coverage": min_ncs_alignment_coverage,
+        "min_ncs_criterion_coverage": min_ncs_criterion_coverage,
+        "min_ncs_assessment_coverage": min_ncs_assessment_coverage,
         "min_source_metadata_coverage": min_source_metadata_coverage,
         "min_assessment_quality": min_assessment_quality,
         "min_duration_alignment": min_duration_alignment,
@@ -266,6 +270,8 @@ def render_mvp_verification_markdown(report: dict[str, Any]) -> str:
             f"| citation 연결률 | {generation.get('average_citation_coverage', 0)} |",
             f"| citation-source 해소율 | {generation.get('average_citation_source_resolution', 0)} |",
             f"| NCS 연결률 | {generation.get('average_ncs_alignment_coverage', 0)} |",
+            f"| NCS 수행준거 커버리지 | {generation.get('average_ncs_criterion_coverage', 0)} |",
+            f"| NCS 평가 커버리지 | {generation.get('average_ncs_assessment_coverage', 0)} |",
             f"| 출처 메타데이터 완성도 | {generation.get('average_source_metadata_coverage', 0)} |",
             f"| 평가 문항 구조 완성도 | {generation.get('average_assessment_quality', 0)} |",
             f"| 수업시간 일치도 | {generation.get('average_duration_alignment', 0)} |",
@@ -463,6 +469,8 @@ def _run_generation_eval(
     score_sum = 0.0
     citation_coverage_sum = 0.0
     ncs_alignment_sum = 0.0
+    ncs_criterion_sum = 0.0
+    ncs_assessment_sum = 0.0
     source_metadata_sum = 0.0
     assessment_quality_sum = 0.0
     duration_alignment_sum = 0.0
@@ -517,6 +525,9 @@ def _run_generation_eval(
         citation_coverage = evaluation.get("citation_coverage") or {}
         citation_coverage_sum += float(citation_coverage.get("coverage", 0.0))
         ncs_alignment_sum += float((evaluation.get("ncs_alignment_coverage") or {}).get("coverage", 0.0))
+        ncs_criterion = evaluation.get("ncs_criterion_coverage") or {}
+        ncs_criterion_sum += float(ncs_criterion.get("coverage", 0.0))
+        ncs_assessment_sum += float(ncs_criterion.get("assessment_coverage", 0.0))
         source_metadata_sum += float((evaluation.get("source_metadata_coverage") or {}).get("coverage", 0.0))
         assessment_quality_sum += float((evaluation.get("assessment_quality") or {}).get("coverage", 0.0))
         duration_alignment_sum += float((evaluation.get("duration_alignment") or {}).get("score", 0.0))
@@ -549,6 +560,8 @@ def _run_generation_eval(
         "average_score": metric(score_sum),
         "average_citation_coverage": metric(citation_coverage_sum),
         "average_ncs_alignment_coverage": metric(ncs_alignment_sum),
+        "average_ncs_criterion_coverage": metric(ncs_criterion_sum),
+        "average_ncs_assessment_coverage": metric(ncs_assessment_sum),
         "average_source_metadata_coverage": metric(source_metadata_sum),
         "average_assessment_quality": metric(assessment_quality_sum),
         "average_duration_alignment": metric(duration_alignment_sum),
@@ -570,6 +583,12 @@ def _run_generation_eval(
         "citation_coverage": report["average_citation_coverage"] >= thresholds["min_citation_coverage"],
         "citation_source_resolution": report["average_citation_source_resolution"] >= 1.0,
         "ncs_alignment": report["average_ncs_alignment_coverage"] >= thresholds["min_ncs_alignment_coverage"],
+        "ncs_criterion_coverage": (
+            report["average_ncs_criterion_coverage"] >= thresholds["min_ncs_criterion_coverage"]
+        ),
+        "ncs_assessment_coverage": (
+            report["average_ncs_assessment_coverage"] >= thresholds["min_ncs_assessment_coverage"]
+        ),
         "source_metadata": report["average_source_metadata_coverage"] >= thresholds["min_source_metadata_coverage"],
         "assessment_quality": report["average_assessment_quality"] >= thresholds["min_assessment_quality"],
         "duration_alignment": report["average_duration_alignment"] >= thresholds["min_duration_alignment"],
@@ -631,6 +650,7 @@ def _project_from_case(
 ):
     ncs_unit_id = str(case["input"].get("ncs_unit_id", ""))
     return ProjectCreate(
+        course_type="ncs",
         course_title=curriculum.get("course_title", "Generative AI Python Basics"),
         lesson_title=curriculum.get("lesson_title", f"LessonPack AI evaluation case {case['case_id']}"),
         learner_profile=curriculum.get("learner_profile", "Job training learners"),
@@ -648,7 +668,11 @@ def _ncs_unit_from_data(*, ncs_unit_id: str, ncs_data: dict[str, Any]) -> NCSUni
                 unit_name=str(unit.get("unit_name", ncs_unit_id)),
                 elements=[str(topic) for topic in unit.get("learning_topics", [])],
             )
-    return NCSUnit(unit_code=ncs_unit_id or "MVP-NCS", unit_name=ncs_unit_id or "MVP NCS", elements=[])
+    return NCSUnit(
+        unit_code=ncs_unit_id or "MVP-NCS",
+        unit_name=ncs_unit_id or "MVP NCS",
+        elements=["차시 학습목표에 해당하는 수행 결과를 설명할 수 있다."],
+    )
 
 
 def _select_chunks_for_case(*, chunks, source_ids: list[str], chunks_per_source: int):

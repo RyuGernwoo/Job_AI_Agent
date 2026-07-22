@@ -47,6 +47,7 @@ def evaluate_lesson_package(
         citation_coverage = _citation_coverage(package, set(retrieved_chunk_ids))
 
     ncs_alignment_coverage = _ncs_alignment_coverage(package)
+    ncs_criterion_coverage = _ncs_criterion_coverage(package)
     source_metadata_coverage = _source_metadata_coverage(package)
     citation_diversity = _citation_diversity(package)
     citation_source_resolution = _citation_source_resolution(package)
@@ -67,6 +68,18 @@ def evaluate_lesson_package(
         "ncs_alignment": (
             ncs_alignment_coverage["coverage"] >= float(expected.get("min_ncs_alignment_coverage", 0.0))
             if expected.get("ncs_alignment_required")
+            else True
+        ),
+        "ncs_criterion_coverage": (
+            ncs_criterion_coverage["coverage"]
+            >= float(expected.get("min_ncs_criterion_coverage", 0.9))
+            if expected.get("ncs_criterion_coverage_required")
+            else True
+        ),
+        "ncs_assessment_coverage": (
+            ncs_criterion_coverage["assessment_coverage"]
+            >= float(expected.get("min_ncs_assessment_coverage", 1.0))
+            if expected.get("ncs_assessment_coverage_required")
             else True
         ),
         "source_metadata": (
@@ -100,6 +113,7 @@ def evaluate_lesson_package(
         },
         "citation_coverage": citation_coverage,
         "ncs_alignment_coverage": ncs_alignment_coverage,
+        "ncs_criterion_coverage": ncs_criterion_coverage,
         "source_metadata_coverage": source_metadata_coverage,
         "citation_diversity": citation_diversity,
         "citation_source_resolution": citation_source_resolution,
@@ -182,6 +196,35 @@ def _ncs_alignment_coverage(package: LessonPackage) -> dict[str, int | float]:
         "aligned_items": aligned,
         "total_items": total,
         "coverage": round(aligned / total, 4) if total else 0.0,
+    }
+
+
+def _ncs_criterion_coverage(package: LessonPackage) -> dict[str, int | float | list[str] | bool]:
+    report = package.ncs_coverage
+    if report is None:
+        return {
+            "applicable": False,
+            "target_criteria": 0,
+            "covered_criteria": 0,
+            "assessment_criteria": 0,
+            "coverage": 0.0,
+            "assessment_coverage": 0.0,
+            "uncovered_criteria": [],
+            "unassessed_criteria": [],
+        }
+    return {
+        "applicable": True,
+        "target_criteria": report.target_criteria_count,
+        "covered_criteria": report.covered_criteria_count,
+        "assessment_criteria": report.assessment_criteria_count,
+        "coverage": report.coverage,
+        "assessment_coverage": report.assessment_coverage,
+        "uncovered_criteria": [
+            item.performance_criterion for item in report.items if not item.covered
+        ],
+        "unassessed_criteria": [
+            item.performance_criterion for item in report.items if not item.assessment_items
+        ],
     }
 
 

@@ -16,11 +16,18 @@ from lectureops_agent.models.schemas import MaterialChunk, NCSUnit, ProjectCreat
 
 def sample_project_create() -> ProjectCreate:
     return ProjectCreate(
+        course_type="ncs",
         course_title="Generative AI Python Basics",
         lesson_title="Python functions and prompt automation practice",
         learner_profile="Job training learners with basic Python experience",
         learning_objectives=["Explain function inputs and return values."],
-        ncs_units=[NCSUnit(unit_code="MVP-NCS-001", unit_name="AI basics", elements=[])],
+        ncs_units=[
+            NCSUnit(
+                unit_code="MVP-NCS-001",
+                unit_name="AI basics",
+                elements=["Explain basic AI concepts."],
+            )
+        ],
     )
 
 

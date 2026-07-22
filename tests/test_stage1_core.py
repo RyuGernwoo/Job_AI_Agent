@@ -24,6 +24,7 @@ from lectureops_agent.services.vector_store import InMemoryVectorStore
 
 def sample_project_create() -> ProjectCreate:
     return ProjectCreate(
+        course_type="ncs",
         course_title="Generative AI Python Basics",
         lesson_title="Python functions and prompt automation practice",
         learner_profile="Job training learners with basic Python experience",
@@ -63,6 +64,7 @@ class Stage1CoreTests(unittest.TestCase):
     def test_project_schema_requires_learning_objectives(self):
         with self.assertRaises(ValueError):
             ProjectCreate(
+                course_type="general",
                 course_title="Generative AI Python Basics",
                 lesson_title="Python functions",
                 learner_profile="Beginner learners",

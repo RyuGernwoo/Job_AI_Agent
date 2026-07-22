@@ -9,13 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from lectureops_agent.models.schemas import (
+    CourseType,
     MaterialChunk,
     NCSUnit,
     ProjectCreate,
     RetrievedEvidence,
     RetrievalRun,
 )
-from lectureops_agent.services.rag_repository import SupabaseRAGRepository
+from lectureops_agent.services.rag_repository import (
+    SupabaseRAGRepository,
+    _postgrest_search_term,
+)
 
 
 class FakeSupabaseClient:
@@ -67,6 +71,7 @@ class RAGRepositoryTests(unittest.TestCase):
         client = FakeSupabaseClient()
         repository = SupabaseRAGRepository(client=client)
         project = ProjectCreate(
+            course_type="ncs",
             course_title="Python",
             lesson_title="Functions",
             learner_profile="Beginners",
@@ -75,7 +80,13 @@ class RAGRepositoryTests(unittest.TestCase):
             theory_ratio_percent=35,
             practice_ratio_percent=65,
             learning_objectives=["Explain return values."],
-            ncs_units=[NCSUnit(unit_code="NCS-001", unit_name="Programming")],
+            ncs_units=[
+                NCSUnit(
+                    unit_code="NCS-001",
+                    unit_name="Programming",
+                    elements=["Write a simple function."],
+                )
+            ],
             retrieval_queries=["function inputs", "return values"],
         ).to_project(project_id="project-001")
         repository.save_project(project)
@@ -99,6 +110,9 @@ class RAGRepositoryTests(unittest.TestCase):
             project_id="project-001",
             query="function return",
             normalized_query="function return Python Functions",
+            course_type=CourseType.NCS,
+            ncs_unit_codes=["NCS-001"],
+            catalog_versions=["24v1"],
             evidence=[
                 RetrievedEvidence(
                     chunk=chunk,
@@ -115,6 +129,12 @@ class RAGRepositoryTests(unittest.TestCase):
         loaded_run = repository.get_retrieval_run("run-001")
 
         self.assertEqual(loaded_run, run)
+
+    def test_postgrest_catalog_search_term_removes_filter_syntax(self):
+        self.assertEqual(
+            _postgrest_search_term("프로그래밍%),unit_name.ilike.(*"),
+            "프로그래밍unit_nameilike",
+        )
 
 
 if __name__ == "__main__":

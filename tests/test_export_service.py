@@ -20,6 +20,7 @@ from lectureops_agent.services.generation_service import generate_lesson_package
 
 def make_package(status: PackageStatus = PackageStatus.GENERATED):
     project = ProjectCreate(
+        course_type="ncs",
         course_title="Generative AI Python Basics",
         lesson_title="Python functions and prompt automation practice",
         learner_profile="Job training learners with basic Python experience",
@@ -28,7 +29,13 @@ def make_package(status: PackageStatus = PackageStatus.GENERATED):
         theory_ratio_percent=30,
         practice_ratio_percent=70,
         learning_objectives=["Explain function inputs and return values."],
-        ncs_units=[NCSUnit(unit_code="MVP-NCS-001", unit_name="AI basics", elements=[])],
+        ncs_units=[
+            NCSUnit(
+                unit_code="MVP-NCS-001",
+                unit_name="AI basics",
+                elements=["Explain basic AI concepts."],
+            )
+        ],
     ).to_project(project_id="project-001")
     chunk = MaterialChunk(
         chunk_id="doc001-p000-c001",

@@ -7,7 +7,7 @@ from pathlib import Path
 from docx import Document
 from pptx import Presentation
 
-from lectureops_agent.models.schemas import CitationDetail, LessonPackage, NCSAlignment
+from lectureops_agent.models.schemas import CourseType, CitationDetail, LessonPackage, NCSAlignment
 
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -28,6 +28,13 @@ def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> 
     document.add_heading("학습 목표", level=1)
     for objective in package.lesson_plan.learning_objectives:
         document.add_paragraph(objective, style="List Bullet")
+    if package.course_type == CourseType.GENERAL:
+        document.add_heading("학습목표-활동-평가 연결", level=1)
+        for objective in package.lesson_plan.learning_objectives:
+            document.add_paragraph(
+                f"{objective} → 교안 설명 → 실습 수행 → 객관식·수행평가 확인",
+                style="List Bullet",
+            )
 
     document.add_heading("교안", level=1)
     for flow in package.lesson_plan.lecture_flow:
@@ -66,6 +73,7 @@ def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> 
         document.add_paragraph(_without_label(item, "평가 기준"), style="List Bullet")
     _add_alignment_paragraph(document, task.ncs_alignment)
 
+    _add_ncs_coverage_section(document, package)
     _add_evidence_section(document, package)
 
     document.save(output_path)
@@ -84,6 +92,15 @@ def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> 
     )
 
     _add_bullet_slide(presentation, "학습 목표", package.lesson_plan.learning_objectives)
+    if package.course_type == CourseType.GENERAL:
+        _add_bullet_slide(
+            presentation,
+            "학습목표-활동-평가 연결",
+            [
+                f"{objective} → 교안 → 실습 → 평가"
+                for objective in package.lesson_plan.learning_objectives
+            ],
+        )
 
     for flow in package.lesson_plan.lecture_flow:
         bullets = []
@@ -136,6 +153,13 @@ def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> 
             ],
         )
 
+    if package.ncs_coverage is not None:
+        _add_bullet_slide(
+            presentation,
+            "NCS 수행준거 커버리지",
+            _ncs_coverage_bullets(package),
+        )
+
     # 근거는 발표 흐름을 방해하지 않도록 마지막 출처 슬라이드에만 표시한다.
     _add_bullet_slide(presentation, "근거 출처", _compact_evidence_bullets(package))
 
@@ -172,11 +196,34 @@ def _training_plan_summary(package: LessonPackage) -> str:
 
 def _add_alignment_paragraph(document: Document, alignments: list[NCSAlignment]) -> None:
     if not alignments:
-        document.add_paragraph("NCS 연계: 등록된 능력단위 정보 없음")
         return
     for alignment in alignments:
-        criteria = "; ".join(alignment.performance_criteria) if alignment.performance_criteria else "수행준거 미기재"
-        document.add_paragraph(f"NCS 연계: {alignment.unit_code} {alignment.unit_name} - {criteria}")
+        document.add_paragraph(f"NCS 연계: {alignment.unit_code} {alignment.unit_name}")
+
+
+def _add_ncs_coverage_section(document: Document, package: LessonPackage) -> None:
+    report = package.ncs_coverage
+    if report is None:
+        return
+    document.add_heading("NCS 수행준거 커버리지", level=1)
+    document.add_paragraph(
+        f"설계 커버리지 {report.covered_criteria_count}/{report.target_criteria_count} "
+        f"({report.coverage * 100:.0f}%), 평가 커버리지 "
+        f"{report.assessment_criteria_count}/{report.target_criteria_count} "
+        f"({report.assessment_coverage * 100:.0f}%)"
+    )
+    for item in report.items:
+        locations = [*item.lesson_sections]
+        if item.practice:
+            locations.append("실습")
+        locations.extend(item.assessment_items)
+        document.add_paragraph(
+            f"{item.unit_code} {item.performance_criterion} | "
+            f"연결: {', '.join(locations) if locations else '없음'}",
+            style="List Bullet",
+        )
+    for warning in report.warnings:
+        document.add_paragraph(f"주의: {warning}")
 
 
 def _add_evidence_section(document: Document, package: LessonPackage) -> None:
@@ -223,8 +270,26 @@ def _evidence_details(package: LessonPackage) -> list[CitationDetail]:
 
 def _alignment_bullets(alignments: list[NCSAlignment]) -> list[str]:
     if not alignments:
-        return ["NCS 연계: 등록된 능력단위 정보 없음"]
+        return []
     return [f"NCS 연계: {alignment.unit_code} {alignment.unit_name}" for alignment in alignments]
+
+
+def _ncs_coverage_bullets(package: LessonPackage) -> list[str]:
+    report = package.ncs_coverage
+    if report is None:
+        return []
+    bullets = [
+        f"설계 커버리지: {report.covered_criteria_count}/{report.target_criteria_count} "
+        f"({report.coverage * 100:.0f}%)",
+        f"평가 커버리지: {report.assessment_criteria_count}/{report.target_criteria_count} "
+        f"({report.assessment_coverage * 100:.0f}%)",
+    ]
+    bullets.extend(
+        f"{item.unit_code}: {item.performance_criterion}"
+        for item in report.items[:3]
+    )
+    bullets.extend(f"주의: {warning}" for warning in report.warnings)
+    return bullets
 
 
 def _compact_evidence_bullets(package: LessonPackage) -> list[str]:

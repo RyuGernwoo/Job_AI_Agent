@@ -54,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--min-citation-coverage", type=float, default=0.9)
     parser.add_argument("--min-ncs-alignment-coverage", type=float, default=0.8)
+    parser.add_argument("--min-ncs-criterion-coverage", type=float, default=0.9)
+    parser.add_argument("--min-ncs-assessment-coverage", type=float, default=1.0)
     parser.add_argument("--min-source-metadata-coverage", type=float, default=0.9)
     parser.add_argument("--min-assessment-quality", type=float, default=1.0)
     parser.add_argument("--min-duration-alignment", type=float, default=0.9)
@@ -101,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         min_generation_quality_score=args.min_generation_quality_score,
         min_citation_coverage=args.min_citation_coverage,
         min_ncs_alignment_coverage=args.min_ncs_alignment_coverage,
+        min_ncs_criterion_coverage=args.min_ncs_criterion_coverage,
+        min_ncs_assessment_coverage=args.min_ncs_assessment_coverage,
         min_source_metadata_coverage=args.min_source_metadata_coverage,
         min_assessment_quality=args.min_assessment_quality,
         min_duration_alignment=args.min_duration_alignment,

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from lectureops_agent.models.schemas import (
+    CourseType,
     Project,
     RAGRetrieveResponse,
     RetrievedEvidence,
@@ -21,7 +22,9 @@ _WHITESPACE_PATTERN = re.compile(r"\s+")
 def build_retrieval_query(*, project: Project, query: str) -> str:
     normalized = _normalize_query(query)
     ncs_text = " ".join(
-        f"{unit.unit_code} {unit.unit_name} {' '.join(unit.elements)}" for unit in project.ncs_units
+        f"{unit.unit_code} {unit.unit_name} {' '.join(unit.elements)} "
+        f"{' '.join(unit.target_criteria)}"
+        for unit in project.ncs_units
     )
     fields = [
         normalized,
@@ -29,7 +32,7 @@ def build_retrieval_query(*, project: Project, query: str) -> str:
         f"차시 {project.lesson_title}",
         f"학습목표 {' '.join(project.learning_objectives)}",
     ]
-    if ncs_text.strip():
+    if project.course_type == CourseType.NCS and ncs_text.strip():
         fields.append(f"NCS {ncs_text}")
     return _normalize_query(" ".join(fields))
 
@@ -82,6 +85,7 @@ def retrieve_evidence_for_queries(
             candidate_k=candidate_k,
             include_baseline=include_baseline,
         )
+        results = _filter_results_for_course_type(project=project, results=results)
         evidence_groups.append(
             [
                 RetrievedEvidence(
@@ -109,6 +113,13 @@ def retrieve_evidence_for_queries(
         project_id=project.project_id,
         query=" | ".join(normalized_queries),
         normalized_query=" | ".join(expanded_queries),
+        course_type=project.course_type,
+        ncs_unit_codes=[unit.unit_code for unit in project.ncs_units],
+        catalog_versions=list(
+            dict.fromkeys(
+                unit.catalog_version for unit in project.ncs_units if unit.catalog_version
+            )
+        ),
         evidence=evidence,
         created_at=datetime.now(timezone.utc),
     )
@@ -122,6 +133,8 @@ def retrieval_response(run: RetrievalRun) -> RAGRetrieveResponse:
         trace_id=run.trace_id,
         project_id=run.project_id,
         query=run.query,
+        course_type=run.course_type,
+        ncs_unit_codes=run.ncs_unit_codes,
         evidence=run.evidence,
         created_at=run.created_at,
     )
@@ -202,3 +215,29 @@ def _merge_evidence_metadata(
             )
         }
     )
+
+
+def _filter_results_for_course_type(*, project: Project, results: list) -> list:
+    if project.course_type == CourseType.GENERAL:
+        return [
+            result
+            for result in results
+            if result.scope != "baseline" or not _is_ncs_chunk(result.chunk.metadata)
+        ]
+    selected_unit_codes = {unit.unit_code.casefold() for unit in project.ncs_units}
+    return [
+        result
+        for result in results
+        if result.scope != "baseline"
+        or not result.chunk.metadata.get("ncs_unit_code")
+        or str(result.chunk.metadata["ncs_unit_code"]).casefold() in selected_unit_codes
+    ]
+
+
+def _is_ncs_chunk(metadata: dict) -> bool:
+    if metadata.get("ncs_unit_code") or metadata.get("ncs_hierarchy"):
+        return True
+    tags = metadata.get("tags", [])
+    if isinstance(tags, list) and any(str(tag).casefold() == "ncs" for tag in tags):
+        return True
+    return str(metadata.get("dataset_version", "")).casefold().startswith("ncs-")

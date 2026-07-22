@@ -65,6 +65,7 @@ data/
 | --- | ---: |
 | PDF | 197개, 19,771쪽 |
 | XLS 능력단위 보고서 | 21개, 능력단위 404개 |
+| 코드 기준 정규화 catalog | 고유 능력단위 202개, 수행준거 2,452개 |
 | 정확 중복 PDF | 1개, RAG 제외 |
 | 변환 Markdown | 218개 |
 | RAG chunk | 19,103개 |
@@ -89,6 +90,7 @@ data/
 | `data/processed/ncs_expansion/chunks.jsonl` | 분야 확장 RAG chunk 19,103개 |
 | `data/processed/ncs_expansion/source_manifest.jsonl` | 원본 해시, 버전, 중복, 변환 상태 |
 | `data/processed/ncs_expansion/dataset_manifest.json` | 확장 데이터 수량과 전처리 계약 |
+| `data/processed/ncs_catalog.jsonl` | XLS 변환 Markdown에서 코드 기준으로 정규화한 능력단위·수행준거 catalog |
 
 ## 5. 적용한 전처리 방법
 
@@ -125,6 +127,10 @@ data/
 4. 생성된 Markdown을 다시 읽어 PDF는 페이지 경계, XLS는 능력단위 경계로 최대 1,400자·160자 overlap chunk를 생성합니다.
 5. 각 chunk에 원본 경로, 페이지, NCS 계층, 능력단위 코드, 출처 URL, 라이선스 주의문, 버전 연도를 보존합니다.
 
+### NCS 구조화 catalog 전처리
+
+[prepare_ncs_catalog.py](../scripts/prepare_ncs_catalog.py)는 XLS 변환 Markdown을 읽어 같은 능력단위 코드를 하나로 합치고, 능력단위 명칭·정의·분류·버전과 능력단위요소별 수행준거를 구조화합니다. 현재 입력 404개 능력단위 행은 코드 기준 고유 능력단위 202개와 수행준거 2,452개로 정규화되며, 수행준거가 없는 능력단위는 0개입니다. 이 catalog는 RAG 본문 chunk와 분리해 입력 자동완성 및 코드·수행준거 검증에 사용합니다.
+
 ## 6. 재생성 절차
 
 원천 자료가 준비된 상태에서 다음 명령을 실행합니다.
@@ -140,6 +146,7 @@ python scripts\prepare_mvp_dataset.py
 ```powershell
 pip install -r requirements-data.txt
 python scripts\prepare_ncs_raw_dataset.py --force
+python scripts\prepare_ncs_catalog.py
 ```
 
 ## 7. 검증 절차
@@ -187,6 +194,8 @@ supabase/migrations/001_lessonpack_vectors.sql
 supabase/migrations/002_rag_persistence.sql
 supabase/migrations/003_training_plan_fields.sql
 supabase/migrations/004_vector_search_performance.sql
+supabase/migrations/005_project_retrieval_queries.sql
+supabase/migrations/006_ncs_course_specialization.sql
 ```
 
 `.env`에는 다음 값이 필요합니다.
@@ -226,9 +235,12 @@ python scripts\ingest_processed_dataset.py `
   --project-id mvp-dataset --batch-size 32
 
 python scripts\verify_ncs_expansion_rag.py --project-id mvp-dataset --top-k 5
+python scripts\prepare_ncs_catalog.py --upload
 ```
 
 2026-07-22 실적은 PDF 18,019개, XLS 1,084개, 합계 19,103개로 로컬 매니페스트와 Supabase 수가 일치했습니다. `004_vector_search_performance.sql`은 PostgREST의 generic prepared plan이 전체 벡터를 순차 비교하지 않도록 검색 함수 내부에서 쿼리별 HNSW custom plan을 생성합니다.
+
+`006_ncs_course_specialization.sql`은 강의 유형, 검색 실행의 NCS 메타데이터, `lessonpack_ncs_catalog`, `lessonpack_ncs_criteria`를 추가합니다. 운영 반영은 migration 적용 후 `prepare_ncs_catalog.py --upload` 순서로 진행하며, service role key는 서버 환경에서만 사용합니다.
 
 ## 9. 검색 평가
 
@@ -258,6 +270,8 @@ python scripts\evaluate_generation.py --min-case-pass-rate 1.0 --report outputs\
 ```powershell
 python scripts\evaluate_generation.py --require-real-llm --min-case-pass-rate 1.0 --report outputs\eval\generation_real_llm_report.json
 ```
+
+NCS 생성 평가는 LLM이 산출물별로 반환한 `ncs_criteria`가 선택 수행준거의 정확한 값인지 먼저 검증한 뒤, 대상 수행준거 커버리지 90% 이상과 평가 커버리지 100%를 별도 게이트로 측정합니다. 일반 강의는 `ncs_criteria`가 비어 있고 NCS 근거·코드·수행준거가 포함되지 않는지 회귀 테스트로 검사합니다. 이 지표는 구조적 연결을 측정하며, 문장 내용이 수행준거를 교육적으로 충족하는지는 강사 평가로 별도 확인합니다.
 
 ## 11. MVP 전체 검증
 

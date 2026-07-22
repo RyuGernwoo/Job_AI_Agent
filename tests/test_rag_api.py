@@ -21,11 +21,18 @@ from lectureops_agent.services.vector_store import InMemoryVectorStore
 
 def project_payload() -> dict:
     return ProjectCreate(
+        course_type="ncs",
         course_title="Python automation",
         lesson_title="Functions and return values",
         learner_profile="Beginning job training learners",
         learning_objectives=["Explain function inputs and return values."],
-        ncs_units=[NCSUnit(unit_code="MVP-NCS-001", unit_name="Programming basics")],
+        ncs_units=[
+            NCSUnit(
+                unit_code="MVP-NCS-001",
+                unit_name="Programming basics",
+                elements=["Explain function inputs and return values."],
+            )
+        ],
         retrieval_queries=["function inputs", "return values"],
     ).model_dump()
 
@@ -69,6 +76,7 @@ class FailingProjectRepository(InMemoryRAGRepository):
 
 class PromptAwareStructuredProvider:
     name = "prompt-aware-structured"
+    ncs_criterion = "Explain function inputs and return values."
 
     def __init__(self) -> None:
         self.prompts: list[str] = []
@@ -86,6 +94,7 @@ class PromptAwareStructuredProvider:
             "answer_index": 0,
             "explanation": "호출 결과를 출력하면 반환값을 확인할 수 있다.",
             "citation_ids": [citation_id],
+            "ncs_criteria": [self.ncs_criterion],
         }
         payload = {
             "lesson_plan": {
@@ -95,18 +104,21 @@ class PromptAwareStructuredProvider:
                         "duration_min": 10,
                         "content": "초급 예제로 수정한 도입" if revised else "함수 입력과 반환값 도입",
                         "citation_ids": [citation_id],
+                        "ncs_criteria": [self.ncs_criterion],
                     },
                     {
                         "section": "전개",
                         "duration_min": 40,
                         "content": "함수를 작성하고 호출 결과를 비교한다.",
                         "citation_ids": [citation_id],
+                        "ncs_criteria": [self.ncs_criterion],
                     },
                     {
                         "section": "정리",
                         "duration_min": 10,
                         "content": "입력과 반환값의 관계를 정리한다.",
                         "citation_ids": [citation_id],
+                        "ncs_criteria": [self.ncs_criterion],
                     },
                 ]
             },
@@ -116,6 +128,7 @@ class PromptAwareStructuredProvider:
                 "submission": "코드와 실행 결과를 제출한다.",
                 "rubric": ["입력을 받는다.", "결과를 반환한다.", "실행 결과가 정확하다."],
                 "citation_ids": [citation_id],
+                "ncs_criteria": [self.ncs_criterion],
             },
             "assessment": {
                 "multiple_choice": [question for _ in range(5)],
@@ -124,6 +137,7 @@ class PromptAwareStructuredProvider:
                     "description": "입력값을 처리해 결과를 반환하는 함수를 작성한다.",
                     "rubric": ["요구사항을 충족한다.", "결과가 정확하다.", "설명이 명확하다."],
                     "citation_ids": [citation_id],
+                    "ncs_criteria": [self.ncs_criterion],
                 },
             },
         }
