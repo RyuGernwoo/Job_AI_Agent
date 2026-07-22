@@ -36,6 +36,7 @@ class LessonPackConfig(BaseModel):
     chunk_size_chars: int = Field(gt=0)
     chunk_overlap_chars: int = Field(ge=0)
     retrieval_top_k: int = Field(gt=0)
+    max_upload_mb: int = Field(default=20, ge=1, le=100)
     llm: LLMConfig
     vector_store: VectorStoreConfig
 

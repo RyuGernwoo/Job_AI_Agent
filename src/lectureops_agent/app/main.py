@@ -62,6 +62,8 @@ from lectureops_agent.services.vector_store import (
 
 CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
+DEFAULT_MAX_UPLOAD_MB = 20
+UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 logger = logging.getLogger(__name__)
@@ -90,18 +92,24 @@ def create_app(
     _configure_cors(app)
 
     @app.exception_handler(Exception)
-    async def handle_unexpected_exception(_: Request, exc: Exception) -> JSONResponse:
-        # Returning through FastAPI's exception middleware lets CORSMiddleware
-        # add headers even when an unexpected dependency error occurs.
+    async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
+        # FastAPI's ServerErrorMiddleware is outside user middleware, so its
+        # fallback response must carry CORS headers explicitly.
         logger.exception("Unhandled API exception", exc_info=exc)
         return JSONResponse(
             status_code=500,
             content={"detail": "An unexpected server error occurred. Please try again shortly."},
+            headers=_cors_response_headers(request),
         )
 
     config = app_config or _load_config_from_env()
     chunk_size_chars = config.chunk_size_chars if config else CHUNK_SIZE_CHARS
     chunk_overlap_chars = config.chunk_overlap_chars if config else CHUNK_OVERLAP_CHARS
+    max_upload_mb = _runtime_int(
+        "LESSONPACK_MAX_UPLOAD_MB",
+        config.max_upload_mb if config else DEFAULT_MAX_UPLOAD_MB,
+    )
+    max_upload_bytes = max_upload_mb * 1024 * 1024
     retrieval_top_k = _runtime_int(
         "LESSONPACK_RETRIEVAL_TOP_K",
         config.retrieval_top_k if config else 5,
@@ -159,7 +167,11 @@ def create_app(
     @app.post("/api/projects/{project_id}/materials", response_model=MaterialIngestResult)
     async def upload_material(project_id: str, file: UploadFile = File(...)) -> MaterialIngestResult:
         _require_project(rag_repository, project_id)
-        content = await file.read()
+        content = await _read_upload_content(
+            file,
+            max_upload_bytes=max_upload_bytes,
+            max_upload_mb=max_upload_mb,
+        )
         try:
             text, source_type = decode_text_material(file.filename or "uploaded.txt", content)
         except ValueError as exc:
@@ -195,8 +207,12 @@ def create_app(
                     created_at=datetime.now(timezone.utc),
                 )
             )
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("Material indexing failed for project %s", project_id)
+            raise HTTPException(
+                status_code=503,
+                detail="Material indexing is temporarily unavailable. Please try again shortly.",
+            ) from exc
         return MaterialIngestResult(
             project_id=project_id,
             document_id=document_id,
@@ -610,6 +626,38 @@ def _configure_cors(app: FastAPI) -> None:
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )
+
+
+def _cors_response_headers(request: Request) -> dict[str, str]:
+    origin = request.headers.get("origin", "").strip()
+    allow_origins = _cors_allow_origins_from_env()
+    if not origin or ("*" not in allow_origins and origin not in allow_origins):
+        return {}
+    headers = {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Expose-Headers": "Content-Disposition",
+        "Vary": "Origin",
+    }
+    if _env_flag("LESSONPACK_CORS_ALLOW_CREDENTIALS", default=False):
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return headers
+
+
+async def _read_upload_content(
+    file: UploadFile,
+    *,
+    max_upload_bytes: int,
+    max_upload_mb: int,
+) -> bytes:
+    content = bytearray()
+    while chunk := await file.read(UPLOAD_READ_CHUNK_BYTES):
+        if len(content) + len(chunk) > max_upload_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size must not exceed {max_upload_mb}MB.",
+            )
+        content.extend(chunk)
+    return bytes(content)
 
 
 def _cors_allow_origins_from_env() -> list[str]:

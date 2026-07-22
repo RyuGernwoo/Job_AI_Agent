@@ -19,6 +19,7 @@ from lectureops_agent.models.schemas import (
 )
 from lectureops_agent.services.chunk_service import chunk_text
 from lectureops_agent.services.generation_service import generate_lesson_package
+from lectureops_agent.services.vector_store import InMemoryVectorStore
 
 
 def sample_project_create() -> ProjectCreate:
@@ -173,6 +174,85 @@ class Stage1CoreTests(unittest.TestCase):
                 health = client.get("/health", headers={"Origin": origin})
                 self.assertEqual(health.status_code, 200)
                 self.assertEqual(health.headers["access-control-allow-origin"], origin)
+
+    def test_unexpected_upload_error_keeps_cors_header(self):
+        with patch.dict(
+            os.environ,
+            {"LESSONPACK_ENV_FILE": str(ROOT / "missing-test.env")},
+            clear=True,
+        ):
+            client = TestClient(create_app(), raise_server_exceptions=False)
+        created = client.post("/api/projects", json=sample_project_create().model_dump())
+        project_id = created.json()["project_id"]
+        origin = "https://lessonpack-ai.lovable.app"
+
+        with patch(
+            "lectureops_agent.app.main.decode_text_material",
+            side_effect=Exception("unexpected parser failure"),
+        ):
+            response = client.post(
+                f"/api/projects/{project_id}/materials",
+                files={"file": ("sample.md", b"content", "text/markdown")},
+                headers={"Origin": origin},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.headers["access-control-allow-origin"], origin)
+        self.assertEqual(
+            response.json()["detail"],
+            "An unexpected server error occurred. Please try again shortly.",
+        )
+
+    def test_material_upload_rejects_file_over_configured_limit(self):
+        with patch.dict(
+            os.environ,
+            {
+                "LESSONPACK_ENV_FILE": str(ROOT / "missing-test.env"),
+                "LESSONPACK_MAX_UPLOAD_MB": "1",
+            },
+            clear=True,
+        ):
+            client = TestClient(create_app())
+        created = client.post("/api/projects", json=sample_project_create().model_dump())
+        project_id = created.json()["project_id"]
+        origin = "https://lessonpack-ai.lovable.app"
+
+        response = client.post(
+            f"/api/projects/{project_id}/materials",
+            files={"file": ("large.md", b"x" * (1024 * 1024 + 1), "text/markdown")},
+            headers={"Origin": origin},
+        )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.headers["access-control-allow-origin"], origin)
+        self.assertEqual(response.json()["detail"], "File size must not exceed 1MB.")
+
+    def test_material_indexing_failure_returns_cors_enabled_503(self):
+        store = InMemoryVectorStore()
+        with patch.dict(
+            os.environ,
+            {"LESSONPACK_ENV_FILE": str(ROOT / "missing-test.env")},
+            clear=True,
+        ):
+            client = TestClient(create_app(vector_store=store))
+        created = client.post("/api/projects", json=sample_project_create().model_dump())
+        project_id = created.json()["project_id"]
+        origin = "https://lessonpack-ai.lovable.app"
+
+        with patch.object(store, "upsert", side_effect=Exception("embedding provider failed")):
+            response = client.post(
+                f"/api/projects/{project_id}/materials",
+                files={"file": ("sample.md", b"content", "text/markdown")},
+                headers={"Origin": origin},
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.headers["access-control-allow-origin"], origin)
+        self.assertEqual(
+            response.json()["detail"],
+            "Material indexing is temporarily unavailable. Please try again shortly.",
+        )
+
     def test_fastapi_material_upload_chunks_markdown_file(self):
         client = create_isolated_test_client()
         created = client.post("/api/projects", json=sample_project_create().model_dump())

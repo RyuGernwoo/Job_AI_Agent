@@ -1,6 +1,7 @@
 chunk_size_chars: 800
 chunk_overlap_chars: 120
 retrieval_top_k: 5
+max_upload_mb: 20
 
 llm:
   # MVP LLMOps default: OpenAI primary model through LiteLLM, Gemini fallback through Google AI Studio.
