@@ -32,7 +32,7 @@ llm:
 
 vector_store:
   # Use memory for local tests. Set provider to supabase for deployed persistence.
-  provider: memory
+  provider: supabase
   table_name: lessonpack_chunks
   match_function: match_lessonpack_chunks
   match_threshold: 0.0
