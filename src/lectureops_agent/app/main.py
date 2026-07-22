@@ -28,6 +28,7 @@ from lectureops_agent.models.schemas import (
     RAGRetrieveRequest,
     RAGRetrieveResponse,
     RetrieveRequest,
+    RetrievedEvidence,
     RetrievalRun,
 )
 from lectureops_agent.services.chunk_service import chunk_text
@@ -161,7 +162,11 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         document_id = rag_repository.next_document_id(project_id)
-        metadata = {"content_type": file.content_type or "application/octet-stream"}
+        metadata = {
+            "content_type": file.content_type or "application/octet-stream",
+            "evidence_origin": "user_upload",
+            "evidence_authority": "user_provided",
+        }
         chunks = chunk_text(
             project_id=project_id,
             document_id=document_id,
@@ -235,17 +240,31 @@ def create_app(
     @app.post("/api/projects/{project_id}/rag/generate", response_model=RAGGenerateResponse)
     def rag_generate(project_id: str, payload: RAGGenerateRequest) -> RAGGenerateResponse:
         project = _require_project(rag_repository, project_id)
-        retrieval_run = _retrieve_for_request(
-            project=project,
-            query=payload.query,
-            top_k=payload.top_k or retrieval_top_k,
-            include_baseline=payload.include_baseline,
-            vector_store=vector_store,
-            rag_repository=rag_repository,
-            candidate_k=candidate_k,
-            baseline_project_id=baseline_project_id,
-        )
-        if not retrieval_run.evidence:
+        if payload.retrieval_run_id is not None:
+            retrieval_run = _require_retrieval_run(
+                repository=rag_repository,
+                run_id=payload.retrieval_run_id,
+                project_id=project_id,
+            )
+            selected_evidence = _select_retrieval_evidence(
+                retrieval_run,
+                selected_chunk_ids=payload.selected_chunk_ids,
+            )
+        else:
+            if payload.query is None:
+                raise HTTPException(status_code=422, detail="query or retrieval_run_id is required")
+            retrieval_run = _retrieve_for_request(
+                project=project,
+                query=payload.query,
+                top_k=payload.top_k or retrieval_top_k,
+                include_baseline=payload.include_baseline,
+                vector_store=vector_store,
+                rag_repository=rag_repository,
+                candidate_k=candidate_k,
+                baseline_project_id=baseline_project_id,
+            )
+            selected_evidence = retrieval_run.evidence
+        if not selected_evidence:
             raise HTTPException(
                 status_code=422,
                 detail="검색 근거가 없습니다. 자료를 추가하거나 질의를 구체화하십시오.",
@@ -260,7 +279,7 @@ def create_app(
         ):
             result = generate_lesson_package_with_log(
                 project=project,
-                retrieved_chunks=[item.chunk for item in retrieval_run.evidence],
+                retrieved_chunks=[item.chunk for item in selected_evidence],
                 llm_provider=llm_provider,
                 retrieval_run_id=retrieval_run.run_id,
                 trace_id=retrieval_run.trace_id,
@@ -473,6 +492,46 @@ def _require_project(repository: RAGRepository, project_id: str) -> Project:
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return project
+
+
+def _require_retrieval_run(
+    *,
+    repository: RAGRepository,
+    run_id: str,
+    project_id: str,
+) -> RetrievalRun:
+    try:
+        run = repository.get_retrieval_run(run_id)
+    except Exception as exc:
+        logger.exception("Retrieval run lookup failed")
+        raise HTTPException(
+            status_code=503,
+            detail="Retrieval persistence is temporarily unavailable. Please try again shortly.",
+        ) from exc
+    if run is None or run.project_id != project_id:
+        raise HTTPException(status_code=404, detail="retrieval run not found")
+    return run
+
+
+def _select_retrieval_evidence(
+    run: RetrievalRun,
+    *,
+    selected_chunk_ids: list[str] | None,
+) -> list[RetrievedEvidence]:
+    if selected_chunk_ids is None:
+        return run.evidence
+    requested = set(selected_chunk_ids)
+    available = {item.chunk.chunk_id for item in run.evidence}
+    unavailable = sorted(requested - available)
+    if unavailable:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "selected_chunk_ids must belong to the referenced retrieval run",
+                "unavailable_chunk_ids": unavailable,
+            },
+        )
+    return [item for item in run.evidence if item.chunk.chunk_id in requested]
 
 
 def _create_runtime_vector_store(

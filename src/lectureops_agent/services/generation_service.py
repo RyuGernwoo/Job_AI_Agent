@@ -213,9 +213,13 @@ def build_generation_prompt(
     )
     evidence_lines: list[str] = []
     for chunk in retrieved_chunks:
+        origin = _optional_metadata(chunk, "evidence_origin") or "unspecified"
+        authority = _optional_metadata(chunk, "evidence_authority") or "unspecified"
         metadata = " | ".join(
             value
             for value in [
+                f"origin={origin}",
+                f"authority={authority}",
                 _optional_metadata(chunk, "source_url"),
                 _optional_metadata(chunk, "license"),
             ]
@@ -275,7 +279,10 @@ def build_generation_prompt(
         "Write all learner-facing text in natural Korean. Do not repeat labels such as '수행 절차:' or '제출물:' "
         "inside values. Use only citation IDs shown above, and attach each citation only to content directly "
         "supported by that chunk. Do not introduce proper nouns, numbers, laws, or certifications absent from "
-        "the evidence. Keep the practice and assessments aligned with the stated learning objectives and NCS units. "
+        "the evidence. User-uploaded material is valid project evidence, but it is not automatically an official "
+        "NCS source. Treat user-entered NCS codes, names, and elements as planning constraints unless an evidence "
+        "chunk explicitly identifies an official NCS source. Never invent official NCS performance criteria. "
+        "Keep the practice and assessments aligned with the stated learning objectives and NCS units. "
         "Include every required grounded practice concept verbatim in the practice scenario, steps, submission, or rubric."
     )
 
@@ -730,6 +737,8 @@ def _citation_details(chunks: list[MaterialChunk]) -> list[CitationDetail]:
                 source_file=_optional_metadata(chunk, "source_file"),
                 page=chunk.page,
                 excerpt=_truncate_words(chunk.text, max_chars=240),
+                evidence_origin=_optional_metadata(chunk, "evidence_origin"),
+                evidence_authority=_optional_metadata(chunk, "evidence_authority"),
             )
         )
     return details

@@ -363,6 +363,108 @@ class VectorStoreTests(unittest.TestCase):
 
         self.assertEqual([item.scope for item in results], ["project"])
 
+    def test_scoped_query_falls_back_to_uploaded_project_material_without_term_match(self):
+        store = InMemoryVectorStore()
+        uploaded_chunk = MaterialChunk(
+            chunk_id="custom-field-c001",
+            project_id="project-custom",
+            document_id="custom-doc",
+            source_name="institution-guide.md",
+            source_type="md",
+            page=None,
+            text="토치 각도와 보호 가스 유량을 기록하고 시편 상태를 관찰한다.",
+            metadata={
+                "evidence_origin": "user_upload",
+                "evidence_authority": "user_provided",
+            },
+        )
+        store.upsert(project_id="project-custom", chunks=[uploaded_chunk])
+        store.upsert(
+            project_id="mvp-dataset",
+            chunks=[
+                MaterialChunk(
+                    chunk_id="generic-baseline-c001",
+                    project_id="mvp-dataset",
+                    document_id="baseline-doc",
+                    source_name="generic-ncs.md",
+                    source_type="md",
+                    page=None,
+                    text="NCS 일반 안내",
+                    metadata={},
+                )
+            ],
+        )
+        store.upsert(
+            project_id="mvp-dataset",
+            chunks=[
+                MaterialChunk(
+                    chunk_id="unrelated-baseline-c001",
+                    project_id="mvp-dataset",
+                    document_id="baseline-doc",
+                    source_name="common-baseline.md",
+                    source_type="md",
+                    page=None,
+                    text="공통 데이터셋에 존재하지 않는 완전히 다른 능력단위",
+                    metadata={},
+                )
+            ],
+        )
+
+        results = store.query_scoped(
+            project_id="project-custom",
+            baseline_project_id="mvp-dataset",
+            query="공통 데이터셋에 존재하지 않는 완전히 다른 능력단위",
+            top_k=5,
+            candidate_k=10,
+            include_baseline=True,
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].chunk.chunk_id, "custom-field-c001")
+        self.assertEqual(results[0].scope, "project")
+        self.assertEqual(results[0].strategy, "project_material_fallback")
+        self.assertEqual(results[0].chunk.metadata["evidence_origin"], "user_upload")
+        self.assertEqual(
+            results[0].chunk.metadata["retrieval_strategy"],
+            "project_material_fallback",
+        )
+
+    def test_scoped_query_uses_project_material_when_baseline_lookup_fails(self):
+        class BaselineFailingStore(InMemoryVectorStore):
+            def query_with_scores(self, *, project_id: str, query: str, top_k: int):
+                if project_id == "mvp-dataset":
+                    raise RuntimeError("baseline unavailable")
+                return super().query_with_scores(project_id=project_id, query=query, top_k=top_k)
+
+        store = BaselineFailingStore()
+        store.upsert(
+            project_id="project-001",
+            chunks=[
+                MaterialChunk(
+                    chunk_id="project-c001",
+                    project_id="project-001",
+                    document_id="doc001",
+                    source_name="uploaded.md",
+                    source_type="md",
+                    page=None,
+                    text="현장 점검 절차와 수행 순서를 설명한다.",
+                    metadata={"evidence_origin": "user_upload"},
+                )
+            ],
+        )
+
+        results = store.query_scoped(
+            project_id="project-001",
+            baseline_project_id="mvp-dataset",
+            query="현장 점검 수행 순서",
+            top_k=3,
+            candidate_k=5,
+            include_baseline=True,
+        )
+
+        self.assertEqual([item.chunk.chunk_id for item in results], ["project-c001"])
+        self.assertEqual(results[0].scope, "project")
+
     def test_vector_lexical_overlap_expands_korean_domain_synonyms(self):
         chunk = MaterialChunk(
             chunk_id="python-functions-c001",
@@ -404,6 +506,67 @@ class VectorStoreTests(unittest.TestCase):
         retrieved = store.query(project_id="mvp-dataset", query="function return", top_k=3)
 
         self.assertEqual([chunk.chunk_id for chunk in retrieved], ["baseline-c001"])
+
+    def test_supabase_scoped_query_uses_raw_project_chunks_when_vector_match_is_empty(self):
+        client = FakeSupabaseClient()
+        client.table_rows = [
+            {
+                "chunk_id": "custom-project-c001",
+                "project_id": "project-custom",
+                "document_id": "custom-doc",
+                "source_name": "uploaded-guide.md",
+                "source_type": "md",
+                "page": None,
+                "content": "사용자가 업로드한 신규 직무 분야의 수행 절차다.",
+                "metadata": {
+                    "evidence_origin": "user_upload",
+                    "evidence_authority": "user_provided",
+                },
+            }
+        ]
+        store = SupabaseVectorStore(
+            url="https://example.supabase.co",
+            key="test-key",
+            client=client,
+        )
+
+        results = store.query_scoped(
+            project_id="project-custom",
+            baseline_project_id="mvp-dataset",
+            query="등록되지 않은 NCS 능력단위",
+            top_k=3,
+            candidate_k=5,
+            include_baseline=False,
+        )
+
+        self.assertEqual([item.chunk.chunk_id for item in results], ["custom-project-c001"])
+        self.assertEqual(results[0].strategy, "project_material_fallback")
+        self.assertEqual(results[0].chunk.metadata["evidence_origin"], "user_upload")
+
+    def test_supabase_lists_project_chunks_without_requiring_embeddings(self):
+        client = FakeSupabaseClient()
+        client.table_rows = [
+            {
+                "chunk_id": "uploaded-c001",
+                "project_id": "project-001",
+                "document_id": "uploaded-doc",
+                "source_name": "custom-guide.md",
+                "source_type": "md",
+                "page": None,
+                "content": "사용자가 업로드한 신규 분야 근거",
+                "metadata": {"evidence_origin": "user_upload"},
+            }
+        ]
+        store = SupabaseVectorStore(
+            url="https://example.supabase.co",
+            key="test-key",
+            client=client,
+        )
+
+        chunks = store.list_chunks(project_id="project-001", limit=5)
+
+        self.assertEqual([chunk.chunk_id for chunk in chunks], ["uploaded-c001"])
+        self.assertEqual(chunks[0].metadata["evidence_origin"], "user_upload")
 
 
 if __name__ == "__main__":

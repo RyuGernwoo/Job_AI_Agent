@@ -131,7 +131,7 @@ Content-Type: application/json
 
 ### 최초 패키지 생성
 
-권장 경로는 서버가 검색과 생성을 함께 소유하는 RAG 생성 API다.
+검색 응답의 `retrieval_run_id`와 사용자가 선택한 `chunk_id`만 전달한다. 서버는 선택 ID가 해당 검색 run에 포함됐는지 검증한 뒤 생성한다.
 
 ```http
 POST /api/projects/{project_id}/rag/generate
@@ -140,23 +140,12 @@ Content-Type: application/json
 
 ```json
 {
-  "query": "함수 입력 반환값 실습",
-  "top_k": 5,
-  "include_baseline": true
+  "retrieval_run_id": "검색 응답의 retrieval_run_id",
+  "selected_chunk_ids": ["선택한 chunk_id"]
 }
 ```
 
-현재 UI는 선택 chunk를 직접 전달하는 호환 API도 사용할 수 있다.
-
-```http
-POST /api/projects/{project_id}/generate
-```
-
-```json
-{
-  "retrieved_chunks": []
-}
-```
+`/api/projects/{project_id}/generate`는 하위 호환용이다. 운영 UI에서는 클라이언트가 chunk 본문을 직접 보내지 않는다. `strategy=project_material_fallback`인 검색 결과는 공통 NCS 데이터가 없는 분야에서 프로젝트 업로드 자료를 근거로 선택한 경우다.
 
 ### 자연어 패키지 재생성
 

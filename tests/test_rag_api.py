@@ -226,6 +226,86 @@ class RAGApiTests(unittest.TestCase):
         self.assertEqual(generated.status_code, 422)
         self.assertEqual(provider.calls, 0)
 
+    def test_uploaded_material_generates_when_baseline_has_no_matching_ncs_field(self):
+        client, _, repository = isolated_client()
+        created = client.post("/api/projects", json=project_payload())
+        project_id = created.json()["project_id"]
+        uploaded = client.post(
+            f"/api/projects/{project_id}/materials",
+            files={
+                "file": (
+                    "custom-welding-guide.md",
+                    "토치 각도와 보호 가스 유량을 기록한다. 시편의 비드 상태를 관찰하고 점검표에 남긴다.",
+                    "text/markdown",
+                )
+            },
+        )
+        self.assertEqual(uploaded.status_code, 200)
+        self.assertEqual(
+            uploaded.json()["chunks"][0]["metadata"]["evidence_origin"],
+            "user_upload",
+        )
+
+        retrieved = client.post(
+            f"/api/projects/{project_id}/rag/retrieve",
+            json={
+                "query": "Supabase 공통 자료에 등록되지 않은 신규 NCS 능력단위",
+                "top_k": 5,
+                "include_baseline": True,
+            },
+        )
+
+        self.assertEqual(retrieved.status_code, 200)
+        retrieval_body = retrieved.json()
+        self.assertEqual(len(retrieval_body["evidence"]), 1)
+        evidence = retrieval_body["evidence"][0]
+        self.assertEqual(evidence["scope"], "project")
+        self.assertEqual(evidence["strategy"], "project_material_fallback")
+        self.assertEqual(evidence["chunk"]["metadata"]["evidence_origin"], "user_upload")
+
+        generated = client.post(
+            f"/api/projects/{project_id}/rag/generate",
+            json={
+                "retrieval_run_id": retrieval_body["retrieval_run_id"],
+                "selected_chunk_ids": [evidence["chunk"]["chunk_id"]],
+            },
+        )
+
+        self.assertEqual(generated.status_code, 200)
+        generation_body = generated.json()
+        self.assertEqual(
+            generation_body["retrieval_run_id"],
+            retrieval_body["retrieval_run_id"],
+        )
+        source = generation_body["package"]["evidence_sources"][0]
+        self.assertEqual(source["evidence_origin"], "user_upload")
+        self.assertEqual(source["evidence_authority"], "user_provided")
+        self.assertIn(generation_body["package"]["package_id"], repository.generation_runs)
+
+    def test_rag_generate_rejects_chunks_outside_referenced_retrieval_run(self):
+        client, _, _ = isolated_client()
+        created = client.post("/api/projects", json=project_payload())
+        project_id = created.json()["project_id"]
+        client.post(
+            f"/api/projects/{project_id}/materials",
+            files={"file": ("guide.md", "함수 입력과 반환값을 설명한다.", "text/markdown")},
+        )
+        retrieved = client.post(
+            f"/api/projects/{project_id}/rag/retrieve",
+            json={"query": "함수 반환값", "include_baseline": False},
+        ).json()
+
+        generated = client.post(
+            f"/api/projects/{project_id}/rag/generate",
+            json={
+                "retrieval_run_id": retrieved["retrieval_run_id"],
+                "selected_chunk_ids": ["client-injected-c001"],
+            },
+        )
+
+        self.assertEqual(generated.status_code, 422)
+        self.assertIn("client-injected-c001", generated.text)
+
     def test_rag_generate_rejects_client_supplied_chunks(self):
         client, _, _ = isolated_client()
         created = client.post("/api/projects", json=project_payload())

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import os
 from dataclasses import dataclass, replace
@@ -17,6 +18,8 @@ from lectureops_agent.services.embedding_provider import (
 from lectureops_agent.services.retrieval_service import expanded_query_terms, retrieve_chunks
 
 _INTERNAL_METADATA_KEYS = {"project_id", "document_id", "source_name", "source_type", "page"}
+_BASELINE_MIN_COMBINED_SCORE = 0.20
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,7 @@ class VectorSearchResult:
     lexical_overlap: float
     score: float
     scope: str = "project"
+    strategy: str = "hybrid"
 
 
 class VectorStore(Protocol):
@@ -33,6 +37,9 @@ class VectorStore(Protocol):
         ...
 
     def query(self, *, project_id: str, query: str, top_k: int) -> list[MaterialChunk]:
+        ...
+
+    def list_chunks(self, *, project_id: str, limit: int) -> list[MaterialChunk]:
         ...
 
     def query_scoped(
@@ -60,6 +67,12 @@ class InMemoryVectorStore:
     def query(self, *, project_id: str, query: str, top_k: int) -> list[MaterialChunk]:
         project_chunks = list(self._chunks_by_project.get(project_id, {}).values())
         return retrieve_chunks(query=query, chunks=project_chunks, top_k=top_k)
+
+    def list_chunks(self, *, project_id: str, limit: int) -> list[MaterialChunk]:
+        if limit <= 0:
+            raise ValueError("limit must be greater than 0")
+        chunks = self._chunks_by_project.get(project_id, {}).values()
+        return sorted(chunks, key=lambda chunk: chunk.chunk_id)[:limit]
 
     def query_with_scores(self, *, project_id: str, query: str, top_k: int) -> list[VectorSearchResult]:
         chunks = self.query(project_id=project_id, query=query, top_k=top_k)
@@ -165,6 +178,20 @@ class SupabaseVectorStore:
 
     def query(self, *, project_id: str, query: str, top_k: int) -> list[MaterialChunk]:
         return [result.chunk for result in self.query_with_scores(project_id=project_id, query=query, top_k=top_k)]
+
+    def list_chunks(self, *, project_id: str, limit: int) -> list[MaterialChunk]:
+        if limit <= 0:
+            raise ValueError("limit must be greater than 0")
+        columns = "chunk_id,project_id,document_id,source_name,source_type,page,content,metadata"
+        response = (
+            self._client.table(self.table_name)
+            .select(columns)
+            .eq("project_id", project_id)
+            .limit(limit)
+            .execute()
+        )
+        _raise_for_supabase_error(response)
+        return [_supabase_row_to_chunk(row) for row in _response_data(response)]
 
     def query_with_scores(self, *, project_id: str, query: str, top_k: int) -> list[VectorSearchResult]:
         params = {
@@ -416,46 +443,194 @@ def _query_scoped(
     if candidate_k < top_k:
         candidate_k = top_k
 
-    candidates: list[VectorSearchResult] = []
-    for result in store.query_with_scores(project_id=project_id, query=query, top_k=candidate_k):
-        candidates.append(
-            replace(
-                result,
-                scope="project",
-                score=_combined_score(result.vector_similarity, result.lexical_overlap, project_scope=True),
-            )
+    project_candidates: list[VectorSearchResult] = []
+    project_query_error: Exception | None = None
+    try:
+        project_results = store.query_with_scores(project_id=project_id, query=query, top_k=candidate_k)
+    except Exception as exc:
+        project_results = []
+        project_query_error = exc
+        logger.warning(
+            "Project semantic retrieval failed (%s); trying uploaded-material fallback",
+            type(exc).__name__,
         )
-    if include_baseline and baseline_project_id and baseline_project_id != project_id:
-        for result in store.query_with_scores(
-            project_id=baseline_project_id,
-            query=query,
-            top_k=candidate_k,
-        ):
-            candidates.append(
+
+    for result in project_results:
+        project_candidates.append(
+            _with_retrieval_metadata(
                 replace(
                     result,
+                    scope="project",
+                    score=_combined_score(result.vector_similarity, result.lexical_overlap, project_scope=True),
+                ),
+                scope="project",
+                strategy=result.strategy,
+            )
+        )
+
+    if not project_candidates:
+        fallback_scan_limit = min(max(candidate_k * 20, candidate_k), 1000)
+        try:
+            project_chunks = store.list_chunks(project_id=project_id, limit=fallback_scan_limit)
+        except Exception:
+            if project_query_error is not None:
+                raise project_query_error
+            raise
+        project_candidates = [
+            _with_retrieval_metadata(
+                VectorSearchResult(
+                    chunk=chunk,
+                    vector_similarity=0.0,
+                    lexical_overlap=0.0,
+                    score=0.05,
+                    scope="project",
+                    strategy="project_material_fallback",
+                ),
+                scope="project",
+                strategy="project_material_fallback",
+            )
+            for chunk in _representative_chunks(project_chunks, limit=candidate_k)
+        ]
+        if project_candidates:
+            logger.info(
+                "Using %d uploaded project chunks as retrieval fallback for project %s",
+                len(project_candidates),
+                project_id,
+            )
+        elif project_query_error is not None:
+            raise project_query_error
+
+    baseline_candidates: list[VectorSearchResult] = []
+    uses_project_material_fallback = bool(project_candidates) and all(
+        result.strategy == "project_material_fallback" for result in project_candidates
+    )
+    if (
+        include_baseline
+        and not uses_project_material_fallback
+        and baseline_project_id
+        and baseline_project_id != project_id
+    ):
+        try:
+            baseline_results = store.query_with_scores(
+                project_id=baseline_project_id,
+                query=query,
+                top_k=candidate_k,
+            )
+        except Exception as exc:
+            if not project_candidates:
+                raise
+            baseline_results = []
+            logger.warning(
+                "Baseline retrieval failed (%s); continuing with project evidence",
+                type(exc).__name__,
+            )
+        for result in baseline_results:
+            scored_result = replace(
+                result,
+                scope="baseline",
+                score=_combined_score(
+                    result.vector_similarity,
+                    result.lexical_overlap,
+                    project_scope=False,
+                ),
+            )
+            if scored_result.score < _BASELINE_MIN_COMBINED_SCORE:
+                continue
+            baseline_candidates.append(
+                _with_retrieval_metadata(
+                    scored_result,
                     scope="baseline",
-                    score=_combined_score(result.vector_similarity, result.lexical_overlap, project_scope=False),
+                    strategy=result.strategy,
                 )
             )
 
-    deduplicated: dict[str, VectorSearchResult] = {}
-    for result in candidates:
-        previous = deduplicated.get(result.chunk.chunk_id)
-        if previous is None or result.score > previous.score:
-            deduplicated[result.chunk.chunk_id] = result
+    # Project uploads are the primary source. Baseline evidence only fills the
+    # remaining slots, so an unrelated common dataset cannot displace a user's
+    # material for a newly introduced NCS field.
+    return _deduplicate_and_rank(
+        project_candidates=project_candidates,
+        baseline_candidates=baseline_candidates,
+        top_k=top_k,
+    )
 
-    content_deduplicated: dict[str, VectorSearchResult] = {}
-    for result in deduplicated.values():
-        content_key = hashlib.sha256(" ".join(result.chunk.text.split()).casefold().encode("utf-8")).hexdigest()
-        previous = content_deduplicated.get(content_key)
-        if previous is None or result.score > previous.score:
-            content_deduplicated[content_key] = result
-    return sorted(
-        content_deduplicated.values(),
-        key=lambda item: (item.score, item.vector_similarity, item.lexical_overlap, item.chunk.chunk_id),
-        reverse=True,
-    )[:top_k]
+
+def _with_retrieval_metadata(
+    result: VectorSearchResult,
+    *,
+    scope: str,
+    strategy: str,
+) -> VectorSearchResult:
+    metadata = dict(result.chunk.metadata)
+    metadata.setdefault(
+        "evidence_origin",
+        "project_material" if scope == "project" else "baseline_dataset",
+    )
+    metadata.setdefault(
+        "evidence_authority",
+        "user_provided" if scope == "project" else "curated_baseline",
+    )
+    metadata["retrieval_scope"] = scope
+    metadata["retrieval_strategy"] = strategy
+    return replace(
+        result,
+        chunk=result.chunk.model_copy(update={"metadata": metadata}),
+        scope=scope,
+        strategy=strategy,
+    )
+
+
+def _representative_chunks(chunks: list[MaterialChunk], *, limit: int) -> list[MaterialChunk]:
+    """Select a stable, document-diverse fallback set without vector scores."""
+    by_document: dict[str, list[MaterialChunk]] = {}
+    for chunk in sorted(chunks, key=lambda item: (item.document_id, item.chunk_id)):
+        by_document.setdefault(chunk.document_id, []).append(chunk)
+
+    selected: list[MaterialChunk] = []
+    document_ids = sorted(by_document)
+    while document_ids and len(selected) < limit:
+        remaining: list[str] = []
+        for document_id in document_ids:
+            document_chunks = by_document[document_id]
+            if document_chunks and len(selected) < limit:
+                selected.append(document_chunks.pop(0))
+            if document_chunks:
+                remaining.append(document_id)
+        document_ids = remaining
+    return selected
+
+
+def _deduplicate_and_rank(
+    *,
+    project_candidates: list[VectorSearchResult],
+    baseline_candidates: list[VectorSearchResult],
+    top_k: int,
+) -> list[VectorSearchResult]:
+    selected: list[VectorSearchResult] = []
+    seen_chunk_ids: set[str] = set()
+    seen_content: set[str] = set()
+    for candidates in (project_candidates, baseline_candidates):
+        ranked = sorted(
+            candidates,
+            key=lambda item: (
+                item.score,
+                item.vector_similarity,
+                item.lexical_overlap,
+                item.chunk.chunk_id,
+            ),
+            reverse=True,
+        )
+        for result in ranked:
+            content_key = hashlib.sha256(
+                " ".join(result.chunk.text.split()).casefold().encode("utf-8")
+            ).hexdigest()
+            if result.chunk.chunk_id in seen_chunk_ids or content_key in seen_content:
+                continue
+            selected.append(result)
+            seen_chunk_ids.add(result.chunk.chunk_id)
+            seen_content.add(content_key)
+            if len(selected) >= top_k:
+                return selected
+    return selected
 
 
 def _combined_score(vector_similarity: float, lexical_overlap: float, *, project_scope: bool) -> float:

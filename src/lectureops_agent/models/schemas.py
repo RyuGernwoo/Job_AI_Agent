@@ -35,6 +35,8 @@ class CitationDetail(BaseModel):
     source_file: str | None = None
     page: int | None = Field(default=None, ge=1)
     excerpt: str = Field(min_length=1)
+    evidence_origin: str | None = None
+    evidence_authority: str | None = None
 
 
 class StandardTemplateMetadata(BaseModel):
@@ -141,6 +143,7 @@ class RetrievedEvidence(BaseModel):
     vector_similarity: float = Field(ge=-1.0, le=1.0)
     lexical_overlap: float = Field(ge=0.0, le=1.0)
     scope: Literal["project", "baseline"]
+    strategy: Literal["hybrid", "project_material_fallback"] = "hybrid"
 
 
 class RetrievalRun(BaseModel):
@@ -163,9 +166,19 @@ class RAGRetrieveResponse(BaseModel):
 
 
 class RAGGenerateRequest(BaseModel):
-    query: str = Field(min_length=1)
+    query: str | None = Field(default=None, min_length=1)
     top_k: int | None = Field(default=None, ge=1, le=20)
     include_baseline: bool = True
+    retrieval_run_id: str | None = Field(default=None, min_length=1)
+    selected_chunk_ids: list[str] | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def validate_generation_source(self) -> "RAGGenerateRequest":
+        if self.query is None and self.retrieval_run_id is None:
+            raise ValueError("query or retrieval_run_id is required")
+        if self.selected_chunk_ids is not None and self.retrieval_run_id is None:
+            raise ValueError("selected_chunk_ids requires retrieval_run_id")
+        return self
 
 
 class LectureFlowItem(BaseModel):

@@ -60,6 +60,7 @@ def retrieve_evidence(
             vector_similarity=result.vector_similarity,
             lexical_overlap=result.lexical_overlap,
             scope=result.scope,
+            strategy=result.strategy,
         )
         for result in results
     ]
