@@ -20,11 +20,12 @@
 1. [구현명세서](02_implementation-readiness/01_구현명세서.md)
 2. [데이터셋 운영 문서](../data/README_DATASET.md)
 3. [RAG 구축 및 연동 기획서](02_implementation-readiness/07_RAG_구축_연동_기획서.md)
-4. [검증 프로토콜](02_implementation-readiness/03_검증_프로토콜.md)
-5. [MVP 품질 평가 결과](04_validation/01_MVP_품질_평가_결과.md)
-6. [Langfuse Trace 검증 결과](04_validation/02_Langfuse_trace_검증_결과.md)
-7. [GCE Docker CI/CD 배포 계획서](02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
-8. [체크포인트 보완 기획서](02_implementation-readiness/06_체크포인트_보완_기획서.md)
+4. [NCS 확장 데이터셋 처리 및 RAG 검증 결과](02_implementation-readiness/09_NCS_확장_데이터셋_처리_검증_결과.md)
+5. [검증 프로토콜](02_implementation-readiness/03_검증_프로토콜.md)
+6. [MVP 품질 평가 결과](04_validation/01_MVP_품질_평가_결과.md)
+7. [Langfuse Trace 검증 결과](04_validation/02_Langfuse_trace_검증_결과.md)
+8. [GCE Docker CI/CD 배포 계획서](02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
+9. [체크포인트 보완 기획서](02_implementation-readiness/06_체크포인트_보완_기획서.md)
 
 ## 문서 구조
 
@@ -49,6 +50,8 @@ docs/
     05_GCE_Docker_CICD_배포_계획서.md
     06_체크포인트_보완_기획서.md
     07_RAG_구축_연동_기획서.md
+    08_자연어_패키지_재생성_구현서.md
+    09_NCS_확장_데이터셋_처리_검증_결과.md
   03_ui-lovable/
     01_Lovable_UI_생성_프롬프트.md
   04_validation/
@@ -60,18 +63,18 @@ docs/
 
 ## 현재 구현 기준
 
-2026-07-21 기준 문서는 다음 구현 상태를 기준으로 정리되어 있습니다.
+2026-07-22 기준 문서는 다음 구현 상태를 기준으로 정리되어 있습니다.
 
 | 영역 | 상태 |
 | --- | --- |
 | API | FastAPI MVP 구현 |
 | UI | Lovable 웹 UI 연동 |
-| 데이터셋 | 6개 선별 원천, 43개 chunk, retrieval gold 10개, generation gold 3개 |
-| Vector Store | Supabase Postgres + pgvector, 프로젝트·retrieval/generation run 영속화 및 1536차원 semantic 재색인 완료 |
+| 데이터셋 | 기존 6개 선별 원천 43개 chunk + NCS 확장 218개 Markdown·19,103개 chunk |
+| Vector Store | Supabase Postgres + pgvector, 1536차원 semantic embedding 및 HNSW 검색 적용 |
 | LLMOps | LiteLLM, OpenAI primary, Gemini fallback, Langfuse tracing 적용 |
 | Export | DOCX/PPTX export 구현 |
 | 배포 | Docker, GCE, GitHub Actions CI/CD 적용 및 실배포 확인 |
-| 검증 | 77개 pytest와 3개 subtest 통과, Supabase·실제 LLM·Langfuse rich trace 품질 게이트 PASS |
+| 검증 | 92개 pytest와 3개 subtest 통과, NCS 확장 Supabase 수량·세 분야 실제 RAG 검색 PASS |
 | 품질 보완 | 실제 DOCX/PPTX 테스트 산출물 분석 기반 보완 계획 추가 |
 
 ## 문서별 역할

@@ -91,6 +91,16 @@ class FixedEmbeddingProvider:
         return list(self.vector)
 
 
+class BatchEmbeddingProvider(FixedEmbeddingProvider):
+    def __init__(self, vector: list[float]) -> None:
+        super().__init__(vector)
+        self.batch_calls: list[list[str]] = []
+
+    def embed_many(self, *, texts: list[str]) -> list[list[float]]:
+        self.batch_calls.append(texts)
+        return [list(self.vector) for _ in texts]
+
+
 class VectorStoreTests(unittest.TestCase):
     def test_in_memory_vector_store_upserts_and_queries_chunks(self):
         store = InMemoryVectorStore()
@@ -246,6 +256,35 @@ class VectorStoreTests(unittest.TestCase):
         self.assertEqual(len(row["embedding_v2"]), 1536)
         self.assertEqual(row["embedding_model"], "fixed:test")
         self.assertEqual(row["embedding_version"], "v2")
+
+    def test_supabase_vector_store_embeds_upsert_rows_in_one_batch(self):
+        client = FakeSupabaseClient()
+        provider = BatchEmbeddingProvider([0.1] * 64)
+        store = SupabaseVectorStore(
+            url="https://example.supabase.co",
+            key="test-key",
+            embedding_provider=provider,
+            client=client,
+        )
+        chunks = [
+            MaterialChunk(
+                chunk_id=f"doc001-c{index:03d}",
+                project_id="project-001",
+                document_id="doc001",
+                source_name="sample.md",
+                source_type="md",
+                page=index,
+                text=f"Semantic embedding sample {index}.",
+                metadata={},
+            )
+            for index in range(1, 3)
+        ]
+
+        store.upsert(project_id="project-001", chunks=chunks)
+
+        self.assertEqual(len(provider.batch_calls), 1)
+        self.assertEqual(provider.batch_calls[0], [chunk.text for chunk in chunks])
+        self.assertEqual(len(client.upserts[0]["rows"]), 2)
 
     def test_supabase_vector_store_rejects_wrong_v2_dimensions(self):
         with self.assertRaisesRegex(ValueError, "1536-dimensional"):

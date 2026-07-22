@@ -147,17 +147,18 @@ class SupabaseVectorStore:
     def upsert(self, *, project_id: str, chunks: list[MaterialChunk]) -> None:
         if not chunks:
             return
+        embeddings = _embed_many(self.embedding_provider, [chunk.text for chunk in chunks])
         rows = [
             _chunk_to_supabase_row(
                 project_id=project_id,
                 chunk=chunk,
-                embedding=self.embedding_provider.embed(text=chunk.text),
+                embedding=embedding,
                 embedding_column=self.embedding_column,
                 embedding_model=self.embedding_provider.name,
                 embedding_version=self.embedding_version,
                 scope="baseline" if project_id == self.baseline_project_id else "project",
             )
-            for chunk in chunks
+            for chunk, embedding in zip(chunks, embeddings, strict=True)
         ]
         response = self._client.table(self.table_name).upsert(rows, on_conflict="chunk_id").execute()
         _raise_for_supabase_error(response)
@@ -487,6 +488,17 @@ def _parse_embedding(value: Any) -> list[float]:
             return []
         return [float(item) for item in stripped.split(",")]
     return []
+
+
+def _embed_many(provider: EmbeddingProvider, texts: list[str]) -> list[list[float]]:
+    embed_many = getattr(provider, "embed_many", None)
+    if callable(embed_many):
+        vectors = embed_many(texts=texts)
+    else:
+        vectors = [provider.embed(text=text) for text in texts]
+    if len(vectors) != len(texts):
+        raise RuntimeError(f"embedding count mismatch: expected {len(texts)}, received {len(vectors)}")
+    return vectors
 
 
 def _cosine_similarity(left: list[float], right: list[float]) -> float:

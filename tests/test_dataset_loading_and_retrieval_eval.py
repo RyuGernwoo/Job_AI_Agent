@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 from lectureops_agent.models.schemas import MaterialChunk
-from lectureops_agent.services.dataset_loader import load_processed_chunks
+from lectureops_agent.services.dataset_loader import load_chunks_file, load_processed_chunks
 from lectureops_agent.services.retrieval_service import retrieve_chunks
 from lectureops_agent.services.retrieval_evaluation import evaluate_retrieval_gold
 from scripts.prepare_mvp_dataset import find_matching_chunk_ids, retrieval_gold_data
@@ -32,6 +32,38 @@ class DatasetLoadingAndRetrievalEvalTests(unittest.TestCase):
             self.assertEqual(first.metadata["source_url"], "https://example.test/source-a")
             self.assertEqual(first.metadata["tags"], ["python", "function"])
             self.assertEqual(first.metadata["review_status"], "needs_review")
+
+    def test_load_chunks_file_preserves_expansion_document_page_and_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            chunks_path = Path(tmp) / "ncs_chunks.jsonl"
+            chunks_path.write_text(
+                json.dumps(
+                    {
+                        "chunk_id": "ncs-pdf-a-p0007-c001",
+                        "source_id": "ncs-source-a",
+                        "document_id": "ncs-pdf-a",
+                        "source_name": "NCS 학습모듈",
+                        "source_type": "md",
+                        "page": 7,
+                        "text": "프로젝트 범위관리 수행 내용",
+                        "metadata": {
+                            "top_category": "사업관리",
+                            "original_source_type": "pdf",
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            chunks = load_chunks_file(chunks_path, project_id="mvp-dataset")
+
+            self.assertEqual(chunks[0].document_id, "ncs-pdf-a")
+            self.assertEqual(chunks[0].page, 7)
+            self.assertEqual(chunks[0].source_type, "md")
+            self.assertEqual(chunks[0].metadata["top_category"], "사업관리")
+            self.assertEqual(chunks[0].metadata["source_id"], "ncs-source-a")
 
     def test_evaluate_retrieval_gold_reports_hit_rate_and_case_details(self):
         with tempfile.TemporaryDirectory() as tmp:

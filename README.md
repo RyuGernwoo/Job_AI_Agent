@@ -194,7 +194,7 @@ python scripts\check_deployment.py http://localhost:8000
 ```text
 src/            FastAPI 백엔드 (API · RAG · 생성 · export)
 lessonpack-ai/  Lovable 기반 웹 프론트엔드 (React + TS)
-data/           MVP 데이터셋 (processed chunk · gold set)
+data/           MVP·NCS 확장 데이터셋 (원본 · processed chunk · gold set)
 scripts/        데이터 적재 · 검증 · 배포 확인 스크립트
 docs/           기획 · 구현 · 검증 문서
 tests/          자동 테스트
@@ -223,6 +223,7 @@ GitHub Actions에서 테스트와 배포를 분리해 운영합니다.
 - 🧭 [MVP 통합 기획서](docs/00_project-brief/01_MVP_통합_기획서.md)
 - 🏗️ [구현명세서](docs/02_implementation-readiness/01_구현명세서.md)
 - 🔎 [RAG 구축 및 연동 기획서](docs/02_implementation-readiness/07_RAG_구축_연동_기획서.md)
+- 🗂️ [NCS 확장 데이터셋 처리 및 RAG 검증 결과](docs/02_implementation-readiness/09_NCS_확장_데이터셋_처리_검증_결과.md)
 - ✅ [MVP 품질 평가 결과](docs/04_validation/01_MVP_품질_평가_결과.md)
 - 🚀 [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
 

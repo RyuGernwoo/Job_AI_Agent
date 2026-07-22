@@ -30,6 +30,7 @@ dist/
 # Local data and model artifacts
 # data/gold/ is intentionally tracked for small synthetic eval fixtures.
 data/raw/
+data/NCS_raw/
 data/interim/
 data/processed/
 data/vector_store/

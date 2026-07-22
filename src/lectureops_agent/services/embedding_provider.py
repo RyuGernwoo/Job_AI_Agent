@@ -15,6 +15,9 @@ class EmbeddingProvider(Protocol):
     def embed(self, *, text: str) -> list[float]:
         ...
 
+    def embed_many(self, *, texts: list[str]) -> list[list[float]]:
+        ...
+
 
 class HashEmbeddingProvider:
     def __init__(self, *, dimensions: int = 64, model: str = "lessonpack-hash-v1") -> None:
@@ -36,6 +39,9 @@ class HashEmbeddingProvider:
             return vector
         return [value / norm for value in vector]
 
+    def embed_many(self, *, texts: list[str]) -> list[list[float]]:
+        return [self.embed(text=text) for text in texts]
+
 
 class LiteLLMEmbeddingProvider:
     def __init__(self, *, model: str, dimensions: int) -> None:
@@ -48,20 +54,30 @@ class LiteLLMEmbeddingProvider:
         self.name = f"litellm:{model}"
 
     def embed(self, *, text: str) -> list[float]:
-        if not text.strip():
+        return self.embed_many(texts=[text])[0]
+
+    def embed_many(self, *, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        if any(not text.strip() for text in texts):
             raise ValueError("embedding text must not be empty")
         try:
             import litellm
         except ModuleNotFoundError as exc:
             raise RuntimeError("litellm is not installed; run pip install -r requirements.txt") from exc
 
-        response = litellm.embedding(model=self.model, input=[text], dimensions=self.dimensions)
-        vector = _extract_embedding(response)
-        if len(vector) != self.dimensions:
+        response = litellm.embedding(model=self.model, input=texts, dimensions=self.dimensions)
+        vectors = _extract_embeddings(response)
+        if len(vectors) != len(texts):
             raise RuntimeError(
-                f"embedding dimensions mismatch: expected {self.dimensions}, received {len(vector)}"
+                f"embedding count mismatch: expected {len(texts)}, received {len(vectors)}"
             )
-        return vector
+        for vector in vectors:
+            if len(vector) != self.dimensions:
+                raise RuntimeError(
+                    f"embedding dimensions mismatch: expected {self.dimensions}, received {len(vector)}"
+                )
+        return vectors
 
 
 def create_embedding_provider(*, provider: str, model: str, dimensions: int) -> EmbeddingProvider:
@@ -74,14 +90,27 @@ def create_embedding_provider(*, provider: str, model: str, dimensions: int) -> 
 
 
 def _extract_embedding(response: Any) -> list[float]:
+    return _extract_embeddings(response)[0]
+
+
+def _extract_embeddings(response: Any) -> list[list[float]]:
     data = response.get("data") if isinstance(response, dict) else getattr(response, "data", None)
     if not isinstance(data, list) or not data:
         raise RuntimeError("embedding provider response missing data[0].embedding")
-    first = data[0]
-    vector = first.get("embedding") if isinstance(first, dict) else getattr(first, "embedding", None)
-    if not isinstance(vector, list) or not vector:
-        raise RuntimeError("embedding provider response missing data[0].embedding")
-    try:
-        return [float(value) for value in vector]
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError("embedding provider returned a non-numeric vector") from exc
+    indexed: list[tuple[int, Any]] = []
+    for fallback_index, item in enumerate(data):
+        index_value = item.get("index") if isinstance(item, dict) else getattr(item, "index", None)
+        index = fallback_index if index_value is None else int(index_value)
+        indexed.append((index, item))
+    indexed.sort(key=lambda pair: pair[0])
+
+    vectors: list[list[float]] = []
+    for _, item in indexed:
+        vector = item.get("embedding") if isinstance(item, dict) else getattr(item, "embedding", None)
+        if not isinstance(vector, list) or not vector:
+            raise RuntimeError("embedding provider response missing data[0].embedding")
+        try:
+            vectors.append([float(value) for value in vector])
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("embedding provider returned a non-numeric vector") from exc
+    return vectors

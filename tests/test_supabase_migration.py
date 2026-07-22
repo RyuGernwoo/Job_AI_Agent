@@ -21,7 +21,22 @@ class SupabaseMigrationTests(unittest.TestCase):
         self.assertIn("match_lessonpack_chunks_v2", sql)
         self.assertIn("embedding_v2 extensions.vector(1536)", sql)
         self.assertIn("alter column embedding drop not null", sql)
-        self.assertIn("set enable_indexscan = off", sql)
+        self.assertIn("using hnsw (embedding_v2 vector_cosine_ops)", sql)
+        self.assertIn("language plpgsql", sql)
+        self.assertIn("return query execute", sql)
+        self.assertNotIn("set enable_indexscan = off", sql)
+
+    def test_vector_performance_migration_restores_custom_hnsw_queries(self):
+        sql = (
+            ROOT / "supabase" / "migrations" / "004_vector_search_performance.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("lessonpack_chunks_embedding_v2_hnsw_idx", sql)
+        self.assertIn("using hnsw (embedding_v2 vector_cosine_ops)", sql)
+        self.assertIn("language plpgsql", sql)
+        self.assertIn("return query execute", sql)
+        self.assertIn("analyze public.lessonpack_chunks", sql)
+        self.assertNotIn("set enable_indexscan = off", sql)
 
     def test_training_plan_migration_adds_project_fields_and_constraints(self):
         sql = (ROOT / "supabase" / "migrations" / "003_training_plan_fields.sql").read_text(

@@ -16,6 +16,7 @@ MVP 데이터셋은 직업훈련 강의 운영 보조 AI가 다음 흐름을 실
 
 ```text
 data/
+  NCS_raw/         # 분야 확장용 NCS PDF/XLS 원본, Git 미포함
   raw/             # 로컬 원천 데이터, Git 미포함
   processed/       # 전처리 산출물, Git 미포함, 재생성 가능
   gold/            # 작은 합성 평가 fixture, Git 포함
@@ -27,6 +28,7 @@ data/
 | 경로 | Git 포함 | 이유 |
 | --- | --- | --- |
 | `data/raw/` | 아니오 | 원천 PDF/MD/XLS 자료는 용량, 라이선스, 재배포 이슈가 있음 |
+| `data/NCS_raw/` | 아니오 | 분야 확장용 NCS 원본이며 현재 약 2.05GB |
 | `data/processed/` | 아니오 | `scripts/prepare_mvp_dataset.py`로 재생성 가능 |
 | `data/gold/` | 예 | 테스트와 평가 기준 공유에 필요한 작은 합성 fixture |
 | `outputs/` | 아니오 | 검증 리포트, 데모 산출물, export 파일은 실행 결과물 |
@@ -55,6 +57,22 @@ data/
 | `ncs-programming-language-application` | NCS 프로그래밍 언어 응용 | NCS 정합성, 실습, 평가 |
 | `ncs-data-structure-use` | NCS 자료구조 활용 | NCS 정합성, 검색 gold, 평가 |
 
+### NCS 분야 확장 데이터셋
+
+2026-07-22 기준 `data/NCS_raw/`의 사업관리, 경영·회계·사무, 금융·보험 자료를 별도 확장 데이터셋으로 처리했습니다.
+
+| 항목 | 값 |
+| --- | ---: |
+| PDF | 197개, 19,771쪽 |
+| XLS 능력단위 보고서 | 21개, 능력단위 404개 |
+| 정확 중복 PDF | 1개, RAG 제외 |
+| 변환 Markdown | 218개 |
+| RAG chunk | 19,103개 |
+| PDF / XLS chunk | 18,019 / 1,084개 |
+| 변환 오류 | 0건 |
+
+분야별 chunk는 사업관리 4,696개, 경영·회계·사무 6,503개, 금융·보험 7,904개입니다. 기존 43개 MVP chunk와 같은 `mvp-dataset` 기준 범위에 적재되어 서비스 검색 시 함께 사용됩니다.
+
 ## 4. 전처리 산출물
 
 | 파일 | 역할 |
@@ -67,6 +85,10 @@ data/
 | `data/gold/retrieval_gold.jsonl` | 검색 평가용 query와 기대 chunk ID |
 | `data/gold/generation_gold.yaml` | 생성 평가용 case와 필수 조건 |
 | `data/gold/human_eval_rubric.yaml` | 사람 평가 루브릭 |
+| `data/raw/ncs_expansion/converted_md/` | NCS_raw PDF/XLS의 Markdown 변환본 |
+| `data/processed/ncs_expansion/chunks.jsonl` | 분야 확장 RAG chunk 19,103개 |
+| `data/processed/ncs_expansion/source_manifest.jsonl` | 원본 해시, 버전, 중복, 변환 상태 |
+| `data/processed/ncs_expansion/dataset_manifest.json` | 확장 데이터 수량과 전처리 계약 |
 
 ## 5. 적용한 전처리 방법
 
@@ -93,6 +115,16 @@ data/
 7. Gold set 생성
    검색 평가용 query 10개와 생성 평가용 case 3개를 생성하고, 기대 chunk ID와 필수 개념을 연결합니다.
 
+### NCS_raw 확장 전처리
+
+[prepare_ncs_raw_dataset.py](../scripts/prepare_ncs_raw_dataset.py)는 다음 순서를 강제합니다.
+
+1. 모든 PDF와 XLS의 SHA-256을 계산하고 정확 중복을 식별합니다.
+2. PDF는 PyMuPDF 정렬 텍스트 추출로 페이지별 Markdown을 먼저 생성합니다. 전체 감사 결과 OCR이 필요한 문서는 없었으며, 본문이 없는 앞표지·간지는 chunk에서 제외합니다.
+3. XLS는 `xlrd`로 셀을 읽어 능력단위 코드별 Markdown으로 변환합니다.
+4. 생성된 Markdown을 다시 읽어 PDF는 페이지 경계, XLS는 능력단위 경계로 최대 1,400자·160자 overlap chunk를 생성합니다.
+5. 각 chunk에 원본 경로, 페이지, NCS 계층, 능력단위 코드, 출처 URL, 라이선스 주의문, 버전 연도를 보존합니다.
+
 ## 6. 재생성 절차
 
 원천 자료가 준비된 상태에서 다음 명령을 실행합니다.
@@ -102,6 +134,13 @@ python scripts\prepare_mvp_dataset.py
 ```
 
 성공하면 `data/processed/`와 `data/gold/` 산출물이 갱신됩니다.
+
+확장 NCS 데이터는 데이터 전처리 전용 의존성을 설치한 뒤 재생성합니다.
+
+```powershell
+pip install -r requirements-data.txt
+python scripts\prepare_ncs_raw_dataset.py --force
+```
 
 ## 7. 검증 절차
 
@@ -146,6 +185,8 @@ python scripts\validate_mvp_dataset.py --report outputs\eval\dataset_validation_
 ```text
 supabase/migrations/001_lessonpack_vectors.sql
 supabase/migrations/002_rag_persistence.sql
+supabase/migrations/003_training_plan_fields.sql
+supabase/migrations/004_vector_search_performance.sql
 ```
 
 `.env`에는 다음 값이 필요합니다.
@@ -176,6 +217,18 @@ python scripts\check_rag_readiness.py --check-schema --query "Python 함수 retu
 ```
 
 2026-07-21에 기존 43개 `mvp-dataset` chunk를 위 구성으로 재적재해 `embedding_v2`와 `embedding_version=v2`를 확인했다. 이후 데이터셋을 변경하면 같은 명령으로 해당 chunk를 갱신한다. 기존 `embedding` 값은 호환성 확인 전까지 유지한다.
+
+NCS 확장 데이터 적재와 검증 명령은 다음과 같습니다.
+
+```powershell
+python scripts\ingest_processed_dataset.py `
+  --chunks-file data\processed\ncs_expansion\chunks.jsonl `
+  --project-id mvp-dataset --batch-size 32
+
+python scripts\verify_ncs_expansion_rag.py --project-id mvp-dataset --top-k 5
+```
+
+2026-07-22 실적은 PDF 18,019개, XLS 1,084개, 합계 19,103개로 로컬 매니페스트와 Supabase 수가 일치했습니다. `004_vector_search_performance.sql`은 PostgREST의 generic prepared plan이 전체 벡터를 순차 비교하지 않도록 검색 함수 내부에서 쿼리별 HNSW custom plan을 생성합니다.
 
 ## 9. 검색 평가
 
@@ -220,3 +273,4 @@ python scripts\run_mvp_verification.py --output-dir outputs\eval --demo-case-id 
 - 실제 강사 사용성 평가는 별도 수집이 필요합니다.
 - 원천 자료 라이선스는 문서화되어 있지만 자동 판정하지 않습니다.
 - NCS PDF의 표, 이미지, 복잡한 레이아웃은 Markdown 변환 과정에서 일부 손실될 수 있습니다.
+- 확장 원본의 버전은 2013~2024년 자료가 혼재합니다. chunk에 연도를 보존하지만 법령·지침·통계는 생성 전에 최신성을 별도로 확인해야 합니다.
