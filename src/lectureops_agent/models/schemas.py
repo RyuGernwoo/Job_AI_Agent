@@ -279,9 +279,16 @@ class RAGGenerateResponse(BaseModel):
 
 
 class PackageRegenerateRequest(BaseModel):
-    instruction: str = Field(min_length=1)
+    instruction: str = Field(min_length=1, max_length=2000)
     top_k: int | None = Field(default=None, ge=1, le=20)
     include_baseline: bool = True
+
+    @model_validator(mode="after")
+    def validate_instruction(self) -> "PackageRegenerateRequest":
+        self.instruction = " ".join(self.instruction.split())
+        if sum(character.isalnum() for character in self.instruction) < 2:
+            raise ValueError("instruction must contain a meaningful natural-language request")
+        return self
 
 
 class PackageRegenerateResponse(BaseModel):

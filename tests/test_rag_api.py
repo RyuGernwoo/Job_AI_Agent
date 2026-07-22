@@ -137,6 +137,20 @@ class RevisionFailureProvider(PromptAwareStructuredProvider):
         return super().generate(prompt=prompt)
 
 
+class IgnoringRevisionProvider:
+    name = "ignoring-revision"
+    schema_retries = 1
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+        self.delegate = PromptAwareStructuredProvider()
+
+    def generate(self, *, prompt: str) -> str:
+        self.prompts.append(prompt)
+        unchanged_prompt = prompt.replace("Revision mode:", "Ignored revision:")
+        return self.delegate.generate(prompt=unchanged_prompt)
+
+
 class RAGApiTests(unittest.TestCase):
     def test_project_persistence_failure_returns_service_unavailable(self):
         client, _, _ = isolated_client(repository=FailingProjectRepository())
@@ -430,6 +444,52 @@ class RAGApiTests(unittest.TestCase):
 
         exported = client.get(f"/api/packages/{revised['package_id']}/export.docx")
         self.assertEqual(exported.status_code, 200)
+
+    def test_regenerate_rejects_non_meaningful_instruction(self):
+        client, _, _ = isolated_client()
+
+        response = client.post(
+            "/api/packages/unknown/regenerate",
+            json={"instruction": ".", "include_baseline": False},
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("meaningful natural-language request", response.text)
+
+    def test_regenerate_retries_and_rejects_unchanged_provider_output(self):
+        provider = IgnoringRevisionProvider()
+        client, _, _ = isolated_client(llm_provider=provider)
+        created = client.post("/api/projects", json=project_payload())
+        project_id = created.json()["project_id"]
+        uploaded = client.post(
+            f"/api/projects/{project_id}/materials",
+            files={
+                "file": (
+                    "functions.md",
+                    "A Python function receives input and returns output. " * 20,
+                    "text/markdown",
+                )
+            },
+        )
+        self.assertEqual(uploaded.status_code, 200)
+        generated = client.post(
+            f"/api/projects/{project_id}/rag/generate",
+            json={"query": "function input return output", "include_baseline": False},
+        )
+        source_package_id = generated.json()["package"]["package_id"]
+
+        response = client.post(
+            f"/api/packages/{source_package_id}/regenerate",
+            json={
+                "instruction": "실습 난이도를 초급으로 낮춰 주세요.",
+                "include_baseline": False,
+            },
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("수정 요청이 패키지 내용에 반영되지 않았습니다", response.text)
+        self.assertEqual(len(provider.prompts), 3)
+        self.assertIn("previous revision was structurally valid", provider.prompts[-1])
 
     def test_regenerate_provider_failure_returns_cors_enabled_gateway_error(self):
         provider = RevisionFailureProvider()

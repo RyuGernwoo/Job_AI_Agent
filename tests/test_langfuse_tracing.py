@@ -18,7 +18,7 @@ from lectureops_agent.services.langfuse_tracing import (
     record_langfuse_llm_span,
     redact_trace_error_message,
 )
-from lectureops_agent.services.llm_provider import LiteLLMProvider
+from lectureops_agent.services.llm_provider import LiteLLMProvider, _litellm_metadata, llm_trace_context
 
 
 class LangfuseTracingTests(unittest.TestCase):
@@ -171,8 +171,13 @@ class LangfuseTracingTests(unittest.TestCase):
         output_value = json.loads(fake_span.attributes["langfuse.observation.output"])
         self.assertEqual(input_value["content_capture"], "redacted")
         self.assertNotIn("private lesson material", fake_span.attributes["langfuse.observation.input"])
+        self.assertEqual(
+            input_value["messages"],
+            [{"role": "user", "content_characters": 23}],
+        )
         self.assertEqual(output_value["content_capture"], "redacted")
         self.assertNotIn("private generated lesson", fake_span.attributes["langfuse.observation.output"])
+        self.assertEqual(output_value["response_format"], "text")
         self.assertEqual(
             json.loads(fake_span.attributes["langfuse.observation.usage_details"])["total_tokens"],
             25,
@@ -185,6 +190,57 @@ class LangfuseTracingTests(unittest.TestCase):
             fake_span.attributes["langfuse.observation.metadata.project_id"],
             "project-test",
         )
+
+    def test_record_langfuse_span_captures_synthetic_content_when_explicitly_enabled(self):
+        fake_span = _FakeSpan()
+        fake_provider = _FakeTracerProvider(fake_span)
+        env = {
+            "LANGFUSE_PUBLIC_KEY": "pk-test",
+            "LANGFUSE_SECRET_KEY": "sk-test",
+            "LANGFUSE_OTEL_HOST": "https://jp.cloud.langfuse.com",
+            "LESSONPACK_LANGFUSE_CAPTURE_CONTENT": "true",
+            "APP_ENV": "test",
+        }
+
+        with patch.dict(os.environ, env, clear=True), patch(
+            "lectureops_agent.services.langfuse_tracing._ensure_tracer_provider",
+            return_value=fake_provider,
+        ):
+            recorded = record_langfuse_llm_span(
+                callbacks=["langfuse_otel"],
+                provider_name="litellm:gpt-4o-mini",
+                model="gpt-4o-mini",
+                fallback_models=[],
+                input_payload=[{"role": "user", "content": "synthetic revision instruction"}],
+                response={"model": "gpt-4o-mini", "usage": {}},
+                response_text='{"lesson_plan": {}, "practice": {}, "assessment": {}}',
+                metadata={"operation": "package_revision"},
+                started_at_ns=1_000,
+                ended_at_ns=5_000,
+            )
+
+        self.assertTrue(recorded)
+        self.assertIn(
+            "synthetic revision instruction",
+            fake_span.attributes["langfuse.observation.input"],
+        )
+        self.assertIn("lesson_plan", fake_span.attributes["langfuse.observation.output"])
+
+    def test_nested_llm_trace_context_preserves_revision_metadata(self):
+        with patch.dict(os.environ, {"APP_ENV": "test"}, clear=True):
+            with llm_trace_context(
+                {
+                    "source_package_id": "source-package",
+                    "operation": "package_revision",
+                }
+            ):
+                with llm_trace_context({"package_id": "new-package", "generation_attempt": 1}):
+                    metadata = _litellm_metadata()
+
+        self.assertEqual(metadata["source_package_id"], "source-package")
+        self.assertEqual(metadata["operation"], "package_revision")
+        self.assertEqual(metadata["package_id"], "new-package")
+        self.assertEqual(metadata["generation_attempt"], 1)
 
     def test_trace_diagnostic_accepts_model_from_otel_metadata(self):
         result = _detected_result(

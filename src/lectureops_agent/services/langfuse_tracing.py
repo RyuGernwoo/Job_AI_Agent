@@ -286,11 +286,13 @@ def _safe_io_values(input_payload: Any, response_text: str | None) -> tuple[Any,
             "content_capture": "redacted",
             "message_count": len(input_payload) if isinstance(input_payload, list) else None,
             "prompt_characters": len(_json_attribute(input_payload)),
+            "messages": _message_structure(input_payload),
         },
         {
             "content_capture": "redacted",
             "response_characters": len(response_text or ""),
             "status": "completed" if response_text is not None else "failed",
+            **_response_structure(response_text),
         },
     )
 
@@ -298,6 +300,38 @@ def _safe_io_values(input_payload: Any, response_text: str | None) -> tuple[Any,
 def _capture_content_enabled() -> bool:
     value = os.getenv("LESSONPACK_LANGFUSE_CAPTURE_CONTENT", "false").strip().casefold()
     return value in {"1", "true", "yes", "on"}
+
+
+def _message_structure(input_payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(input_payload, list):
+        return []
+    structure: list[dict[str, Any]] = []
+    for item in input_payload:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        structure.append(
+            {
+                "role": str(item.get("role") or "unknown"),
+                "content_characters": len(content) if isinstance(content, str) else 0,
+            }
+        )
+    return structure
+
+
+def _response_structure(response_text: str | None) -> dict[str, Any]:
+    if not response_text:
+        return {}
+    try:
+        payload = json.loads(response_text)
+    except (json.JSONDecodeError, TypeError):
+        return {"response_format": "text"}
+    if isinstance(payload, dict):
+        return {
+            "response_format": "json_object",
+            "top_level_fields": sorted(str(key) for key in payload),
+        }
+    return {"response_format": type(payload).__name__}
 
 
 def _json_attribute(value: Any) -> str:

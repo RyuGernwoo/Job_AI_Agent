@@ -290,7 +290,9 @@ def _litellm_metadata() -> dict[str, Any]:
 
 @contextmanager
 def llm_trace_context(metadata: dict[str, Any]) -> Iterator[None]:
-    token = _LLM_TRACE_CONTEXT.set({key: value for key, value in metadata.items() if value is not None})
+    merged = dict(_LLM_TRACE_CONTEXT.get())
+    merged.update({key: value for key, value in metadata.items() if value is not None})
+    token = _LLM_TRACE_CONTEXT.set(merged)
     try:
         yield
     finally:
