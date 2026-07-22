@@ -21,7 +21,8 @@
 | 외부 Supabase migration 적용 | 완료 | `002_rag_persistence.sql` 적용 및 persistence table 확인 |
 | 1536차원 semantic embedding 재색인 | 완료 | 43개 baseline chunk를 LiteLLM/OpenAI `text-embedding-3-small`으로 `embedding_v2`에 upsert, live query 확인 |
 | NCS 분야 확장 데이터 적재 | 완료 | 사업관리·경영/회계/사무·금융/보험 19,103개 chunk 적재 및 검색 확인 |
-| Lovable UI 신규 endpoint 전환 | 완료 | `/rag/retrieve` run ID와 선택 chunk ID를 `/rag/generate`에 전달 |
+| Lovable UI 자동 생성 전환 | 완료 | 프로젝트의 다중 query를 업로드 직후 `/rag/generate`에 전달 |
+| 프로젝트 검색어 영속화 | 완료 | `retrieval_queries`와 `005_project_retrieval_queries.sql` |
 | 미등록 NCS 분야 업로드 자료 fallback | 완료 | 프로젝트 자료 우선, `project_material_fallback`, baseline 오염 차단 |
 
 기존 `/retrieve`, `/generate`는 호환성을 위해 유지하지만 운영 UI는 `/rag/retrieve`, `/rag/generate`를 사용해야 한다.
@@ -135,13 +136,17 @@ MVP는 다음 두 범위를 합쳐 검색한다.
 
 업로드 자료가 전혀 없고 baseline 검색 결과도 없으면 기존과 같이 `422`를 반환한다. 즉, fallback은 근거 없는 생성을 허용하는 기능이 아니라 **사용자가 제공한 실제 자료를 대체 근거로 사용하는 기능**이다.
 
+### 4.1.2 다중 query 자동 검색
+
+프로젝트 입력에서 검색어를 1~5개 저장한다. 교재 업로드가 끝나면 운영 UI가 검색어 목록을 `/rag/generate`에 전달하며, 서버는 각 query를 과정명·차시명·학습목표·NCS 정보와 결합해 검색한다. query별 결과는 라운드로빈으로 선택해 특정 검색어에 결과가 편중되지 않게 하고, 동일 chunk ID와 동일 본문은 제거한 뒤 하나의 retrieval run으로 저장한다.
+
 ### 4.2 영속 데이터 모델
 
 기존 `lessonpack_chunks`는 유지하고, 다음 migration으로 메타데이터와 실행 이력을 보완한다.
 
 | 테이블 | 핵심 열 | 목적 |
 | --- | --- | --- |
-| `lessonpack_projects` | `project_id`, 과정명, 차시명, 학습목표, NCS JSON, `created_at` | 재시작 이후에도 프로젝트 식별과 검색 범위를 유지 |
+| `lessonpack_projects` | `project_id`, 과정명, 차시명, 학습목표, NCS JSON, `retrieval_queries`, `created_at` | 재시작 이후에도 프로젝트와 자동 검색 조건을 유지 |
 | `lessonpack_documents` | `document_id`, `project_id`, 파일명, SHA-256, 라이선스, source URL, 상태 | 중복 적재 방지, 저작권 정보 보존 |
 | `lessonpack_chunks` | 기존 열 + `scope`, `embedding_model`, `embedding_version`, `content_hash` | 근거와 임베딩 버전 추적 |
 | `lessonpack_retrieval_runs` | `run_id`, `project_id`, 원 질의, 정규화 질의, 선택 chunk IDs, scores, trace ID | 검색 재현·평가 |
@@ -218,10 +223,10 @@ final_score = 0.75 * vector_similarity + 0.20 * lexical_overlap + 0.05 * project
 | POST | `/api/projects` | 프로젝트 정보 | 영속 프로젝트 | 프로젝트 생성·저장 |
 | POST | `/api/projects/{project_id}/materials` | 파일·출처 metadata | 문서·chunk 요약 | 파싱, chunking, 임베딩, upsert |
 | POST | `/api/projects/{project_id}/rag/retrieve` | `query`, `top_k` | `retrieval_run_id`, 근거 목록, 점수 | 서버 검색 및 검색 이력 저장 |
-| POST | `/api/projects/{project_id}/rag/generate` | `retrieval_run_id`, `selected_chunk_ids` 또는 `query` | `LessonPackage`, `retrieval_run_id` | 검토한 검색 근거로 생성 |
+| POST | `/api/projects/{project_id}/rag/generate` | `queries`, 단일 `query` 또는 `retrieval_run_id` | `LessonPackage`, `retrieval_run_id` | 다중 검색·자동 생성 또는 기존 run 재사용 |
 | GET | `/api/retrieval-runs/{run_id}` | 없음 | 질의, 결과 ID, 점수, trace ID | 근거 재현·감사 |
 
-`/rag/generate`의 요청에는 `retrieved_chunks` 본문을 허용하지 않는다. 서버가 생성한 `retrieval_run_id`를 사용하거나 내부에서 즉시 검색하여, 클라이언트 근거 주입을 차단한다.
+`/rag/generate`의 요청에는 `retrieved_chunks` 본문을 허용하지 않는다. 운영 UI는 프로젝트에 저장된 `queries`로 서버 검색과 생성을 한 번에 실행한다. 단일 query와 서버가 생성한 `retrieval_run_id` 재사용은 API 호환성을 위해 유지하며, 어느 방식에서도 클라이언트 근거 본문 주입은 허용하지 않는다.
 
 ### 5.2 서비스 함수
 

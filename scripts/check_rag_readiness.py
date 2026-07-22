@@ -99,7 +99,7 @@ def _check_persistence_schema(store: SupabaseVectorStore) -> dict:
     tables = {
         "lessonpack_projects": (
             "project_id,total_training_hours,total_lessons,"
-            "theory_ratio_percent,practice_ratio_percent"
+            "theory_ratio_percent,practice_ratio_percent,retrieval_queries"
         ),
         "lessonpack_documents": "document_id",
         "lessonpack_retrieval_runs": "run_id",

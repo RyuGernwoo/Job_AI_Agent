@@ -76,6 +76,7 @@ class RAGRepositoryTests(unittest.TestCase):
             practice_ratio_percent=65,
             learning_objectives=["Explain return values."],
             ncs_units=[NCSUnit(unit_code="NCS-001", unit_name="Programming")],
+            retrieval_queries=["function inputs", "return values"],
         ).to_project(project_id="project-001")
         repository.save_project(project)
 

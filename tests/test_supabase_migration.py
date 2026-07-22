@@ -53,6 +53,15 @@ class SupabaseMigrationTests(unittest.TestCase):
         self.assertIn("theory_ratio_percent + practice_ratio_percent = 100", sql)
         self.assertIn("total_training_hours * 60 / total_lessons >= 15", sql)
 
+    def test_project_retrieval_queries_migration_adds_json_array_contract(self):
+        sql = (
+            ROOT / "supabase" / "migrations" / "005_project_retrieval_queries.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("retrieval_queries jsonb", sql)
+        self.assertIn("jsonb_typeof(retrieval_queries) = 'array'", sql)
+        self.assertIn("jsonb_array_length(retrieval_queries) <= 5", sql)
+
 
 if __name__ == "__main__":
     unittest.main()

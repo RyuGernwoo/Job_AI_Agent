@@ -49,7 +49,11 @@ from lectureops_agent.services.rag_repository import (
     RAGRepository,
     create_rag_repository_for_vector_store,
 )
-from lectureops_agent.services.rag_service import retrieve_evidence, retrieval_response
+from lectureops_agent.services.rag_service import (
+    retrieve_evidence,
+    retrieve_evidence_for_queries,
+    retrieval_response,
+)
 from lectureops_agent.services.vector_store import (
     VectorStore,
     create_vector_store_from_config,
@@ -250,9 +254,24 @@ def create_app(
                 retrieval_run,
                 selected_chunk_ids=payload.selected_chunk_ids,
             )
+        elif payload.queries is not None:
+            retrieval_run = _retrieve_for_queries(
+                project=project,
+                queries=payload.queries,
+                top_k=payload.top_k or retrieval_top_k,
+                include_baseline=payload.include_baseline,
+                vector_store=vector_store,
+                rag_repository=rag_repository,
+                candidate_k=candidate_k,
+                baseline_project_id=baseline_project_id,
+            )
+            selected_evidence = retrieval_run.evidence
         else:
             if payload.query is None:
-                raise HTTPException(status_code=422, detail="query or retrieval_run_id is required")
+                raise HTTPException(
+                    status_code=422,
+                    detail="exactly one of query, queries, or retrieval_run_id is required",
+                )
             retrieval_run = _retrieve_for_request(
                 project=project,
                 query=payload.query,
@@ -474,6 +493,38 @@ def _retrieve_for_request(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Evidence retrieval failed")
+        raise HTTPException(
+            status_code=503,
+            detail="Evidence retrieval is temporarily unavailable. Please try again shortly.",
+        ) from exc
+
+
+def _retrieve_for_queries(
+    *,
+    project: Project,
+    queries: list[str],
+    top_k: int,
+    include_baseline: bool,
+    vector_store: VectorStore,
+    rag_repository: RAGRepository,
+    candidate_k: int,
+    baseline_project_id: str,
+) -> RetrievalRun:
+    try:
+        return retrieve_evidence_for_queries(
+            project=project,
+            queries=queries,
+            vector_store=vector_store,
+            repository=rag_repository,
+            top_k=top_k,
+            candidate_k=candidate_k,
+            baseline_project_id=baseline_project_id,
+            include_baseline=include_baseline,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Multi-query evidence retrieval failed")
         raise HTTPException(
             status_code=503,
             detail="Evidence retrieval is temporarily unavailable. Please try again shortly.",

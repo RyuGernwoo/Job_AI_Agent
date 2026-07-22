@@ -211,15 +211,19 @@ def build_generation_prompt(
         f"- {unit.unit_code} {unit.unit_name}: {', '.join(unit.elements) if unit.elements else '세부 요소 미기재'}"
         for unit in project.ncs_units
     )
+    retrieval_query_text = "\n".join(f"- {query}" for query in project.retrieval_queries)
     evidence_lines: list[str] = []
     for chunk in retrieved_chunks:
         origin = _optional_metadata(chunk, "evidence_origin") or "unspecified"
         authority = _optional_metadata(chunk, "evidence_authority") or "unspecified"
+        matched_queries = chunk.metadata.get("matched_queries", [])
+        matched_query_text = ", ".join(str(value) for value in matched_queries)
         metadata = " | ".join(
             value
             for value in [
                 f"origin={origin}",
                 f"authority={authority}",
+                f"matched_queries={matched_query_text}" if matched_query_text else None,
                 _optional_metadata(chunk, "source_url"),
                 _optional_metadata(chunk, "license"),
             ]
@@ -258,6 +262,8 @@ def build_generation_prompt(
         f"{objective_text}\n"
         "NCS units:\n"
         f"{ncs_text or '- NCS unit not provided'}\n"
+        "RAG focus queries:\n"
+        f"{retrieval_query_text or '- Use the lesson title and learning objectives'}\n"
         "Retrieved evidence chunks:\n"
         f"{evidence_text}\n"
         f"Required grounded practice concepts: {practice_keyword_text}\n"

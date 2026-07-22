@@ -93,7 +93,7 @@ class SupabaseRAGRepository:
         tables = {
             self.projects_table: (
                 "project_id,total_training_hours,total_lessons,"
-                "theory_ratio_percent,practice_ratio_percent"
+                "theory_ratio_percent,practice_ratio_percent,retrieval_queries"
             ),
             self.documents_table: "document_id",
             self.retrieval_runs_table: "run_id",
@@ -124,6 +124,7 @@ class SupabaseRAGRepository:
             "practice_ratio_percent": project.practice_ratio_percent,
             "learning_objectives": project.learning_objectives,
             "ncs_units": [item.model_dump(mode="json") for item in project.ncs_units],
+            "retrieval_queries": project.retrieval_queries,
             "created_at": project.created_at.isoformat(),
         }
         self._upsert(self.projects_table, row, on_conflict="project_id")

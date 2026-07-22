@@ -26,6 +26,7 @@ def project_payload() -> dict:
         learner_profile="Beginning job training learners",
         learning_objectives=["Explain function inputs and return values."],
         ncs_units=[NCSUnit(unit_code="MVP-NCS-001", unit_name="Programming basics")],
+        retrieval_queries=["function inputs", "return values"],
     ).model_dump()
 
 
@@ -146,6 +147,23 @@ class RAGApiTests(unittest.TestCase):
         self.assertEqual(
             response.json()["detail"],
             "Project persistence is temporarily unavailable. Please try again shortly.",
+        )
+
+    def test_project_normalizes_and_deduplicates_multiple_retrieval_queries(self):
+        client, _, _ = isolated_client()
+        payload = project_payload()
+        payload["retrieval_queries"] = [
+            "  함수   입력과 반환값  ",
+            "함수 입력과 반환값",
+            "list 자료구조 실습",
+        ]
+
+        response = client.post("/api/projects", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["retrieval_queries"],
+            ["함수 입력과 반환값", "list 자료구조 실습"],
         )
 
     def test_server_owned_rag_retrieval_and_generation_share_run(self):
@@ -281,6 +299,45 @@ class RAGApiTests(unittest.TestCase):
         self.assertEqual(source["evidence_origin"], "user_upload")
         self.assertEqual(source["evidence_authority"], "user_provided")
         self.assertIn(generation_body["package"]["package_id"], repository.generation_runs)
+
+    def test_multi_query_generation_merges_evidence_into_one_retrieval_run(self):
+        client, _, repository = isolated_client()
+        payload = project_payload()
+        payload["retrieval_queries"] = ["함수 입력과 반환값", "list append 실습"]
+        created = client.post("/api/projects", json=payload)
+        project_id = created.json()["project_id"]
+        for filename, content in (
+            ("functions.md", "함수는 입력을 받아 처리한 뒤 반환값을 제공한다."),
+            ("lists.md", "list append는 목록 끝에 항목을 추가하는 실습에 사용한다."),
+        ):
+            uploaded = client.post(
+                f"/api/projects/{project_id}/materials",
+                files={"file": (filename, content, "text/markdown")},
+            )
+            self.assertEqual(uploaded.status_code, 200)
+
+        generated = client.post(
+            f"/api/projects/{project_id}/rag/generate",
+            json={
+                "queries": payload["retrieval_queries"],
+                "top_k": 5,
+                "include_baseline": False,
+            },
+        )
+
+        self.assertEqual(generated.status_code, 200)
+        body = generated.json()
+        run = repository.retrieval_runs[body["retrieval_run_id"]]
+        self.assertIn("함수 입력과 반환값", run.query)
+        self.assertIn("list append 실습", run.query)
+        self.assertGreaterEqual(len(run.evidence), 2)
+        matched_queries = {
+            query
+            for item in run.evidence
+            for query in item.chunk.metadata.get("matched_queries", [])
+        }
+        self.assertEqual(matched_queries, set(payload["retrieval_queries"]))
+        self.assertEqual(body["package"]["template_metadata"]["generation_scope"], "single_lesson_mvp")
 
     def test_rag_generate_rejects_chunks_outside_referenced_retrieval_run(self):
         client, _, _ = isolated_client()

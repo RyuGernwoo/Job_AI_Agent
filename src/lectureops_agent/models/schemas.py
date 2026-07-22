@@ -59,6 +59,7 @@ class ProjectCreate(BaseModel):
     practice_ratio_percent: int = Field(default=70, ge=0, le=100)
     learning_objectives: list[str] = Field(min_length=1)
     ncs_units: list[NCSUnit] = Field(default_factory=list)
+    retrieval_queries: list[str] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
     def validate_training_plan(self) -> "ProjectCreate":
@@ -66,6 +67,7 @@ class ProjectCreate(BaseModel):
             raise ValueError("theory_ratio_percent and practice_ratio_percent must total 100")
         if self.total_training_hours * 60 / self.total_lessons < 15:
             raise ValueError("average lesson duration must be at least 15 minutes")
+        self.retrieval_queries = _normalize_unique_strings(self.retrieval_queries)
         return self
 
     @property
@@ -84,6 +86,7 @@ class ProjectCreate(BaseModel):
             practice_ratio_percent=self.practice_ratio_percent,
             learning_objectives=self.learning_objectives,
             ncs_units=self.ncs_units,
+            retrieval_queries=self.retrieval_queries,
             created_at=datetime.now(timezone.utc),
         )
 
@@ -167,6 +170,7 @@ class RAGRetrieveResponse(BaseModel):
 
 class RAGGenerateRequest(BaseModel):
     query: str | None = Field(default=None, min_length=1)
+    queries: list[str] | None = Field(default=None, min_length=1, max_length=5)
     top_k: int | None = Field(default=None, ge=1, le=20)
     include_baseline: bool = True
     retrieval_run_id: str | None = Field(default=None, min_length=1)
@@ -174,10 +178,18 @@ class RAGGenerateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_generation_source(self) -> "RAGGenerateRequest":
-        if self.query is None and self.retrieval_run_id is None:
-            raise ValueError("query or retrieval_run_id is required")
+        source_count = sum(
+            value is not None
+            for value in (self.query, self.queries, self.retrieval_run_id)
+        )
+        if source_count != 1:
+            raise ValueError("exactly one of query, queries, or retrieval_run_id is required")
         if self.selected_chunk_ids is not None and self.retrieval_run_id is None:
             raise ValueError("selected_chunk_ids requires retrieval_run_id")
+        if self.queries is not None:
+            self.queries = _normalize_unique_strings(self.queries)
+            if not self.queries:
+                raise ValueError("queries must include at least one non-empty value")
         return self
 
 
@@ -288,3 +300,15 @@ class GenerationRun(BaseModel):
     structured_output_applied: bool = False
     citation_ids: list[str] = Field(default_factory=list)
     created_at: datetime
+
+
+def _normalize_unique_strings(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = " ".join(value.split())
+        key = item.casefold()
+        if item and key not in seen:
+            normalized.append(item)
+            seen.add(key)
+    return normalized

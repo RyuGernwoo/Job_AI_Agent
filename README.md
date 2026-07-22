@@ -60,12 +60,10 @@
 처음 사용한다면 아래 순서를 따라 해 보세요.
 
 1. **접속** — [서비스 페이지](https://lessonpack-ai.lovable.app/)에 들어갑니다.
-2. **과정 정보 입력** — 과정명, 차시명, 학습 대상, 총 훈련시간·차시, 이론·실습 비율, 학습목표, 관련 **NCS 능력단위**를 입력합니다.
-3. **교재 업로드** — 수업에 사용할 교재 파일이나 텍스트 자료(Markdown · TXT · PDF)를 올립니다.
-4. **근거 검색** — 검색된 업로드 교재와 공통 NCS 문단을 확인하고 사용할 항목을 선택합니다.
-5. **생성** — 선택한 근거로 교안 · 실습 · 평가 초안을 만듭니다.
-6. **자연어 수정 (선택)** — 바꾸고 싶은 점을 문장으로 입력하면 새 패키지가 생성됩니다.
-7. **다운로드** — 완성된 강의 패키지를 **DOCX** 또는 **PPTX**로 내려받습니다.
+2. **과정 정보 입력** — 과정명, 차시명, 학습 대상, 훈련 계획, 학습목표, **NCS 능력단위와 근거 검색어**를 입력합니다.
+3. **교재 업로드 및 자동 생성** — Markdown · TXT · PDF 자료를 올리면 입력한 여러 검색어로 RAG 근거를 찾고 교안 · 실습 · 평가 초안을 자동 생성합니다.
+4. **결과 확인·수정** — 생성 결과를 확인하고, 필요한 경우 바꾸고 싶은 점을 자연어로 입력합니다.
+5. **다운로드** — 완성된 강의 패키지를 **DOCX** 또는 **PPTX**로 내려받습니다.
 
 > 💡 학습목표와 NCS 능력단위를 구체적으로 적을수록, 생성되는 교안과 평가 문항이 더 정확해집니다.
 >
@@ -78,6 +76,7 @@
 - 총 훈련시간, 총 차시, 이론·실습 비율
 - 이번 차시의 **학습목표**
 - 관련 **NCS 능력단위** 또는 핵심 수행 내용
+- 교안·실습·평가에서 다룰 핵심 주제별 근거 검색어 1~5개
 - 수업 근거로 쓸 교재 자료 (Markdown · TXT · PDF)
 
 > 일반 사용자는 API 키, Supabase, Langfuse 같은 개발 설정을 **직접 다루지 않아도 됩니다.**
@@ -129,7 +128,7 @@ flowchart TD
     API -.-> Obs
 ```
 
-**동작 흐름**: `과정 생성 → 교재 업로드·chunking → 프로젝트 우선 Supabase 근거 검색(RAG) → retrieval run 검증 → LLM 강의 패키지 생성 → 자연어 재생성 → DOCX/PPTX 내보내기 → Langfuse 관측`
+**동작 흐름**: `과정·다중 검색어 저장 → 교재 업로드·chunking → 다중 query RAG 검색·근거 병합 → LLM 강의 패키지 자동 생성 → 자연어 재생성 → DOCX/PPTX 내보내기 → Langfuse 관측`
 
 검색은 현재 프로젝트의 업로드 자료를 먼저 사용하고 공통 baseline 자료로 남은 결과를 보충합니다. 의미 검색 결과가 없거나 공통 NCS 분야가 비어 있으면 실제 업로드 chunk를 문서별로 선택하는 fallback을 적용하며, 관련도가 낮은 baseline 결과는 생성 근거에서 제외합니다.
 
@@ -189,13 +188,15 @@ python scripts\check_deployment.py http://localhost:8000
 | `POST` | `/api/projects` | 과정 / 차시 프로젝트 생성 |
 | `POST` | `/api/projects/{id}/materials` | 교재 업로드 및 chunk 생성 |
 | `POST` | `/api/projects/{id}/rag/retrieve` | 프로젝트 우선 · baseline 보조 근거 검색 |
-| `POST` | `/api/projects/{id}/rag/generate` | retrieval run과 선택 chunk를 검증해 패키지 생성 |
+| `POST` | `/api/projects/{id}/rag/generate` | 단일·다중 query 검색과 패키지 생성 또는 기존 retrieval run 재사용 |
 | `POST` | `/api/packages/{id}/regenerate` | 자연어 지시 기반 새 패키지 생성 |
 | `GET` | `/api/packages/{id}/export.docx` · `export.pptx` | 산출물 다운로드 |
 
 > 전체 엔드포인트는 [Swagger UI](http://34.47.92.210:8000/docs)에서 확인할 수 있습니다.
 
-운영 UI는 서버 소유 `/rag/retrieve` → `/rag/generate` 흐름을 사용합니다. 의미 검색 결과가 없지만 프로젝트 업로드 자료가 있으면 `project_material_fallback` 전략으로 실제 저장된 chunk만 선택하며, 이 경우 관련 없는 baseline 자료는 생성 근거에 섞지 않습니다.
+운영 UI는 프로젝트 입력의 `retrieval_queries`를 교재 업로드 직후 `/rag/generate`에 전달합니다. 서버는 query별 검색 결과를 하나의 retrieval run으로 병합하고 중복 chunk를 제거합니다. `/rag/retrieve`와 retrieval run 기반 생성은 API 호환성과 진단 용도로 유지합니다.
+
+> 운영 Supabase에는 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql)을 API 배포 전에 적용해야 합니다.
 
 ## 📁 프로젝트 구조
 
