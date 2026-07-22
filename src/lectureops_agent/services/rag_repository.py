@@ -91,15 +91,18 @@ class SupabaseRAGRepository:
 
     def readiness(self) -> dict[str, Any]:
         tables = {
-            self.projects_table: "project_id",
+            self.projects_table: (
+                "project_id,total_training_hours,total_lessons,"
+                "theory_ratio_percent,practice_ratio_percent"
+            ),
             self.documents_table: "document_id",
             self.retrieval_runs_table: "run_id",
             self.generation_runs_table: "package_id",
         }
         result: dict[str, Any] = {"ready": True, "tables": {}}
-        for table_name, id_column in tables.items():
+        for table_name, required_columns in tables.items():
             try:
-                self._client.table(table_name).select(id_column).limit(1).execute()
+                self._client.table(table_name).select(required_columns).limit(1).execute()
                 result["tables"][table_name] = {"exists": True}
             except Exception as exc:
                 result["tables"][table_name] = {

@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -58,6 +59,7 @@ CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+logger = logging.getLogger(__name__)
 DEFAULT_CORS_ALLOW_ORIGINS = (
     "https://7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovableproject.com",
     "https://id-preview--7f62cef5-bc4c-473e-a8d2-5f1847df5736.lovable.app",
@@ -128,8 +130,14 @@ def create_app(
         project = payload.to_project()
         try:
             rag_repository.save_project(project)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            # PostgREST raises APIError rather than RuntimeError for schema and
+            # connectivity failures.  Do not expose it as an unhandled 500.
+            logger.exception("Project persistence failed")
+            raise HTTPException(
+                status_code=503,
+                detail="Project persistence is temporarily unavailable. Please try again shortly.",
+            ) from exc
         return project
 
     @app.post("/api/projects/{project_id}/materials", response_model=MaterialIngestResult)

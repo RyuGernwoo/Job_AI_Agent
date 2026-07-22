@@ -61,6 +61,11 @@ class CountingProvider:
         return "unused"
 
 
+class FailingProjectRepository(InMemoryRAGRepository):
+    def save_project(self, project) -> None:
+        raise ValueError("missing database column")
+
+
 class PromptAwareStructuredProvider:
     name = "prompt-aware-structured"
 
@@ -125,6 +130,17 @@ class PromptAwareStructuredProvider:
 
 
 class RAGApiTests(unittest.TestCase):
+    def test_project_persistence_failure_returns_service_unavailable(self):
+        client, _, _ = isolated_client(repository=FailingProjectRepository())
+
+        response = client.post("/api/projects", json=project_payload())
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json()["detail"],
+            "Project persistence is temporarily unavailable. Please try again shortly.",
+        )
+
     def test_server_owned_rag_retrieval_and_generation_share_run(self):
         client, store, repository = isolated_client()
         created = client.post("/api/projects", json=project_payload())

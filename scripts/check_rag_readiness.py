@@ -97,15 +97,23 @@ def main(argv: list[str] | None = None) -> int:
 
 def _check_persistence_schema(store: SupabaseVectorStore) -> dict:
     tables = {
-        "lessonpack_projects": "project_id",
+        "lessonpack_projects": (
+            "project_id,total_training_hours,total_lessons,"
+            "theory_ratio_percent,practice_ratio_percent"
+        ),
         "lessonpack_documents": "document_id",
         "lessonpack_retrieval_runs": "run_id",
         "lessonpack_generation_runs": "package_id",
     }
     result: dict = {"ready": True, "tables": {}}
-    for table_name, id_column in tables.items():
+    for table_name, required_columns in tables.items():
         try:
-            response = store.client.table(table_name).select(id_column, count="exact").limit(1).execute()
+            response = (
+                store.client.table(table_name)
+                .select(required_columns, count="exact")
+                .limit(1)
+                .execute()
+            )
             result["tables"][table_name] = {
                 "exists": True,
                 "count": getattr(response, "count", None),
