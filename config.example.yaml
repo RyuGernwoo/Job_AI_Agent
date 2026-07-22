@@ -11,6 +11,10 @@ llm:
     - gemini/gemini-3.5-flash
   timeout_seconds: 30
   schema_retries: 1
+  # Sampling temperature. First-pass generation stays low for grounded, stable output;
+  # revisions run hotter so a natural-language edit visibly diverges from the source package.
+  temperature: 0.1
+  revision_temperature: 0.6
   callbacks:
     - langfuse_otel
 

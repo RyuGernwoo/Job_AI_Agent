@@ -202,6 +202,34 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
         self.assertEqual(provider.fallback_models, ["gemini/gemini-3.5-flash"])
         self.assertEqual(provider.callbacks, ["langfuse_otel"])
         self.assertEqual(provider.schema_retries, 1)
+        # Revisions must run hotter than first-pass generation by default so a natural-language
+        # edit visibly diverges from the source package.
+        self.assertEqual(provider.temperature, 0.1)
+        self.assertEqual(provider.revision_temperature, 0.6)
+        self.assertGreater(provider.revision_temperature, provider.temperature)
+
+    def test_create_llm_provider_from_config_uses_configured_temperatures(self):
+        config = LessonPackConfig.model_validate(
+            {
+                "chunk_size_chars": 800,
+                "chunk_overlap_chars": 120,
+                "retrieval_top_k": 5,
+                "llm": {
+                    "provider": "litellm",
+                    "model": "gpt-4o-mini",
+                    "timeout_seconds": 30,
+                    "temperature": 0.2,
+                    "revision_temperature": 0.9,
+                },
+                "vector_store": {"provider": "memory"},
+            }
+        )
+
+        provider = create_llm_provider_from_config(config)
+
+        self.assertIsInstance(provider, LiteLLMProvider)
+        self.assertEqual(provider.temperature, 0.2)
+        self.assertEqual(provider.revision_temperature, 0.9)
 
     def test_http_chat_provider_posts_prompt_and_returns_message_content(self):
         server = HTTPServer(("127.0.0.1", 0), ChatCompletionHandler)

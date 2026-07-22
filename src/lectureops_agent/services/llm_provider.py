@@ -105,6 +105,8 @@ class LiteLLMProvider:
         timeout_seconds: int | float | None = None,
         callbacks: list[str] | None = None,
         schema_retries: int = 1,
+        temperature: float = 0.1,
+        revision_temperature: float = 0.6,
     ) -> None:
         if not model.strip():
             raise ValueError("model is required")
@@ -113,6 +115,8 @@ class LiteLLMProvider:
         self.timeout_seconds = timeout_seconds
         self.callbacks = callbacks or []
         self.schema_retries = max(0, schema_retries)
+        self.temperature = temperature
+        self.revision_temperature = revision_temperature
         fallback_label = f" -> {', '.join(self.fallback_models)}" if self.fallback_models else ""
         self.name = f"litellm:{model}{fallback_label}"
 
@@ -130,6 +134,10 @@ class LiteLLMProvider:
             litellm.callbacks = runtime_callbacks
 
         metadata = _litellm_metadata()
+        # Revisions run hotter than first-pass generation so the requested natural-language
+        # edit visibly diverges from the source package instead of being reproduced verbatim.
+        is_revision = _LLM_TRACE_CONTEXT.get().get("operation") == "package_revision"
+        temperature = self.revision_temperature if is_revision else self.temperature
         request: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -144,7 +152,7 @@ class LiteLLMProvider:
             ],
             "metadata": metadata,
             "response_format": {"type": "json_object"},
-            "temperature": 0.1,
+            "temperature": temperature,
             "drop_params": True,
         }
         if self.fallback_models:
@@ -222,6 +230,8 @@ def create_llm_provider_from_config(config: LessonPackConfig) -> LLMProvider:
             timeout_seconds=config.llm.timeout_seconds,
             callbacks=_configured_callbacks(config),
             schema_retries=config.llm.schema_retries,
+            temperature=config.llm.temperature,
+            revision_temperature=config.llm.revision_temperature,
         )
     raise ValueError(f"unsupported LLM provider: {config.llm.provider}")
 
@@ -247,6 +257,8 @@ def create_llm_provider_from_env() -> LLMProvider:
                 or os.getenv("LESSONPACK_LITELLM_SUCCESS_CALLBACKS", "langfuse_otel")
             ),
             schema_retries=_optional_int_env("LESSONPACK_LLM_SCHEMA_RETRIES", default=1),
+            temperature=_optional_float_env("LESSONPACK_LITELLM_TEMPERATURE") or 0.1,
+            revision_temperature=_optional_float_env("LESSONPACK_LITELLM_REVISION_TEMPERATURE") or 0.6,
         )
     raise ValueError(f"unsupported LLM provider without LESSONPACK_CONFIG: {provider_name}")
 

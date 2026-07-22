@@ -323,7 +323,20 @@ def build_generation_prompt(
     practice_keyword_text = ", ".join(_practice_keywords(project=project, retrieved_chunks=retrieved_chunks))
     revision_context = ""
     revision_emphasis = ""
+    revision_header = ""
     if source_package is not None and revision_instruction is not None:
+        # Lead the whole prompt with the edit request so the model does not under-weight it
+        # against the long template/evidence/requirements body that follows.
+        revision_header = (
+            "PRIORITY EDIT REQUEST — revision mode\n"
+            "You are revising an existing lesson package. Applying the user's instruction below is the "
+            "single most important requirement of this task and takes precedence over any tendency to "
+            "reproduce the previous package.\n"
+            f"User instruction: {json.dumps(revision_instruction.strip(), ensure_ascii=False)}\n"
+            "You MUST change every learner-facing field the instruction affects; the returned package "
+            "MUST differ from the current package shown below. Leave unrelated content, the schema, "
+            "evidence usage, and citation rules intact.\n\n"
+        )
         source_payload = _revision_source_payload(source_package)
         revision_context = (
             "Revision mode:\n"
@@ -343,6 +356,7 @@ def build_generation_prompt(
             "The revised learner-facing content must not be identical to the current package."
         )
     return (
+        f"{revision_header}"
         "LessonPack AI generation request\n"
         f"Course: {project.course_title}\n"
         f"Lesson: {project.lesson_title}\n"

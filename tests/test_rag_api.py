@@ -483,6 +483,12 @@ class RAGApiTests(unittest.TestCase):
         self.assertEqual(revised["lesson_plan"]["lecture_flow"][0]["content"], "초급 예제로 수정한 도입")
         self.assertIn(instruction, provider.prompts[-1])
         self.assertIn("함수 입력과 반환값 도입", provider.prompts[-1])
+        # The revision instruction must lead the prompt so the model does not under-weight it.
+        self.assertIn("PRIORITY EDIT REQUEST", provider.prompts[-1])
+        self.assertLess(
+            provider.prompts[-1].index("PRIORITY EDIT REQUEST"),
+            provider.prompts[-1].index("LessonPack AI generation request"),
+        )
 
         original = client.get(f"/api/packages/{source_package_id}")
         self.assertEqual(original.status_code, 200)

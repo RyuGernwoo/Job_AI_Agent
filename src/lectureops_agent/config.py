@@ -16,6 +16,11 @@ class LLMConfig(BaseModel):
     fallback_models: list[str] = Field(default_factory=list)
     callbacks: list[str] = Field(default_factory=list)
     success_callbacks: list[str] = Field(default_factory=list)
+    # Sampling temperature for first-pass generation. Kept low for grounded, stable output.
+    temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    # Higher temperature for natural-language revisions so the requested edit actually
+    # diverges from the source package instead of being reproduced near-identically.
+    revision_temperature: float = Field(default=0.6, ge=0.0, le=2.0)
 
 
 class VectorStoreConfig(BaseModel):
