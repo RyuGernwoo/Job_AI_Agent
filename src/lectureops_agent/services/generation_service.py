@@ -411,7 +411,7 @@ def build_generation_prompt(
         f"Lesson: {project.lesson_title}\n"
         f"Learners: {project.learner_profile}\n"
         f"Training plan: {project.total_training_hours:g} total hours across {project.total_lessons} lessons; "
-        f"this lesson is {lesson_duration} minutes.\n"
+        f"build one package covering the full {lesson_duration} minutes of total training time.\n"
         f"Delivery ratio: theory {project.theory_ratio_percent}% and practice {project.practice_ratio_percent}%.\n"
         "Learning objectives:\n"
         f"{objective_text}\n"

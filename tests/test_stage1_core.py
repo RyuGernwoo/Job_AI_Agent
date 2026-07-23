@@ -75,7 +75,8 @@ class Stage1CoreTests(unittest.TestCase):
     def test_project_schema_validates_training_plan(self):
         project = sample_project_create()
 
-        self.assertEqual(project.lesson_duration_minutes, 120)
+        # 패키지 duration은 총 훈련 시간 기준(6시간 = 360분)이며, 차시 수로 나누지 않는다.
+        self.assertEqual(project.lesson_duration_minutes, 360)
         self.assertEqual(project.theory_ratio_percent + project.practice_ratio_percent, 100)
 
         invalid_payload = project.model_dump()
@@ -124,7 +125,7 @@ class Stage1CoreTests(unittest.TestCase):
         self.assertEqual(package.project_id, project.project_id)
         self.assertEqual(package.lesson_plan.title, project.lesson_title)
         self.assertEqual(package.lesson_plan.lecture_flow[0].citation_ids, [chunks[0].chunk_id])
-        self.assertEqual(sum(item.duration_min or 0 for item in package.lesson_plan.lecture_flow), 120)
+        self.assertEqual(sum(item.duration_min or 0 for item in package.lesson_plan.lecture_flow), 360)
         self.assertEqual(package.template_metadata.total_training_hours, 6)
         self.assertEqual(package.template_metadata.total_lessons, 3)
         self.assertEqual(package.template_metadata.theory_ratio_percent, 40)

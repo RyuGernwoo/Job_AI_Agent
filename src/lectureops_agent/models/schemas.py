@@ -199,7 +199,8 @@ class ProjectCreate(BaseModel):
 
     @property
     def lesson_duration_minutes(self) -> int:
-        return max(1, round(self.total_training_hours * 60 / self.total_lessons))
+        # 패키지는 총 훈련 시간 전체를 기준으로 생성한다. (차시 수로 나누지 않음)
+        return max(1, round(self.total_training_hours * 60))
 
     def to_project(self, project_id: str | None = None) -> "Project":
         return Project(
