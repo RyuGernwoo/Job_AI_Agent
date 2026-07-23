@@ -37,6 +37,11 @@ on:
         required: true
         default: false
         type: boolean
+      embedding_batch_size:
+        description: Maximum chunks per embedding and Supabase upsert batch
+        required: true
+        default: "8"
+        type: string
 
 concurrency:
   group: ncs-official-api-sync
@@ -60,6 +65,9 @@ env:
   LESSONPACK_NCS_API_ENABLED: "true"
   LESSONPACK_NCS_SYNC_PAGE_SIZE: "100"
   LESSONPACK_NCS_SYNC_REQUESTS_PER_SECOND: "2"
+  LESSONPACK_NCS_SYNC_EMBEDDING_BATCH_SIZE: "8"
+  LESSONPACK_SUPABASE_UPSERT_TIMEOUT_RETRIES: "2"
+  LESSONPACK_SUPABASE_UPSERT_TIMEOUT_RETRY_DELAY_SECONDS: "0.5"
 
 jobs:
   sync:
@@ -92,6 +100,7 @@ jobs:
           INPUT_MAX_REQUESTS: ${{ inputs.max_requests || '5000' }}
           INPUT_LIMIT: ${{ inputs.limit || '' }}
           INPUT_DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          INPUT_EMBEDDING_BATCH_SIZE: ${{ inputs.embedding_batch_size || env.LESSONPACK_NCS_SYNC_EMBEDDING_BATCH_SIZE }}
         run: |
           set -euo pipefail
           mode="${INPUT_MODE:-all}"
@@ -108,6 +117,7 @@ jobs:
           args=(
             --mode "$mode"
             --max-requests "$INPUT_MAX_REQUESTS"
+            --embedding-batch-size "$INPUT_EMBEDDING_BATCH_SIZE"
           )
           if [ "$resume" = "true" ]; then
             args+=(--resume)

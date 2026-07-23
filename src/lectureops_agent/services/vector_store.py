@@ -4,6 +4,7 @@ import hashlib
 import logging
 import math
 import os
+import time
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
@@ -120,6 +121,8 @@ class SupabaseVectorStore:
         embedding_provider: EmbeddingProvider | None = None,
         embedding_column: str = "embedding",
         embedding_version: str = "v1",
+        upsert_timeout_retries: int = 2,
+        upsert_timeout_retry_delay_seconds: float = 0.5,
         client: Any | None = None,
     ) -> None:
         if not url.strip():
@@ -134,6 +137,12 @@ class SupabaseVectorStore:
             raise ValueError("Supabase embedding_column is required")
         if not embedding_version.strip():
             raise ValueError("Supabase embedding_version is required")
+        if upsert_timeout_retries < 0:
+            raise ValueError("upsert_timeout_retries must be greater than or equal to 0")
+        if upsert_timeout_retry_delay_seconds < 0:
+            raise ValueError(
+                "upsert_timeout_retry_delay_seconds must be greater than or equal to 0"
+            )
         self.table_name = table_name
         self.match_function = match_function
         self.match_threshold = match_threshold
@@ -141,6 +150,8 @@ class SupabaseVectorStore:
         self.embedding_provider = embedding_provider or HashEmbeddingProvider()
         self.embedding_column = embedding_column
         self.embedding_version = embedding_version
+        self.upsert_timeout_retries = upsert_timeout_retries
+        self.upsert_timeout_retry_delay_seconds = upsert_timeout_retry_delay_seconds
         if self.embedding_column == "embedding_v2" and self.embedding_provider.dimensions != 1536:
             raise ValueError("embedding_v2 requires a 1536-dimensional embedding provider")
         if self.embedding_version == "v2" and self.embedding_column != "embedding_v2":
@@ -173,8 +184,52 @@ class SupabaseVectorStore:
             )
             for chunk, embedding in zip(chunks, embeddings, strict=True)
         ]
-        response = self._client.table(self.table_name).upsert(rows, on_conflict="chunk_id").execute()
-        _raise_for_supabase_error(response)
+        self._upsert_rows_with_timeout_recovery(rows)
+
+    def _upsert_rows_with_timeout_recovery(self, rows: list[dict[str, Any]]) -> None:
+        """Retry a timed-out write, then split the batch to preserve sync progress."""
+        last_timeout: Exception | None = None
+        for attempt in range(self.upsert_timeout_retries + 1):
+            try:
+                response = (
+                    self._client.table(self.table_name)
+                    .upsert(rows, on_conflict="chunk_id")
+                    .execute()
+                )
+                _raise_for_supabase_error(response)
+                return
+            except Exception as exc:
+                if not _is_statement_timeout(exc):
+                    raise
+                last_timeout = exc
+                if attempt >= self.upsert_timeout_retries:
+                    break
+                delay = self.upsert_timeout_retry_delay_seconds * (2**attempt)
+                logger.warning(
+                    "Supabase chunk upsert timed out for %d rows; retrying in %.2fs (%d/%d)",
+                    len(rows),
+                    delay,
+                    attempt + 1,
+                    self.upsert_timeout_retries,
+                )
+                if delay:
+                    time.sleep(delay)
+
+        if len(rows) == 1:
+            raise RuntimeError(
+                "Supabase chunk upsert timed out for one row after retries; "
+                "check database load and statement timeout settings"
+            ) from last_timeout
+
+        midpoint = len(rows) // 2
+        logger.warning(
+            "Supabase chunk upsert timed out for %d rows after retries; splitting into %d and %d rows",
+            len(rows),
+            midpoint,
+            len(rows) - midpoint,
+        )
+        self._upsert_rows_with_timeout_recovery(rows[:midpoint])
+        self._upsert_rows_with_timeout_recovery(rows[midpoint:])
 
     def query(self, *, project_id: str, query: str, top_k: int) -> list[MaterialChunk]:
         return [result.chunk for result in self.query_with_scores(project_id=project_id, query=query, top_k=top_k)]
@@ -326,6 +381,14 @@ def create_vector_store_from_env() -> VectorStore:
             embedding_provider=embedding_provider,
             embedding_column=embedding_column,
             embedding_version=embedding_version,
+            upsert_timeout_retries=_optional_int_env(
+                "LESSONPACK_SUPABASE_UPSERT_TIMEOUT_RETRIES",
+                default=2,
+            ),
+            upsert_timeout_retry_delay_seconds=_optional_float_env(
+                "LESSONPACK_SUPABASE_UPSERT_TIMEOUT_RETRY_DELAY_SECONDS",
+                default=0.5,
+            ),
         )
     raise ValueError(f"unsupported vector store: {store_type}")
 
@@ -420,6 +483,16 @@ def _raise_for_supabase_error(response: Any) -> None:
         error = response.get("error")
     if error:
         raise RuntimeError(f"Supabase vector store request failed: {error}")
+
+
+def _is_statement_timeout(exc: Exception) -> bool:
+    if str(getattr(exc, "code", "")) == "57014":
+        return True
+    for detail in exc.args:
+        if isinstance(detail, dict) and str(detail.get("code", "")) == "57014":
+            return True
+    message = str(exc).casefold()
+    return "statement timeout" in message or "canceling statement due to statement timeout" in message
 
 
 def _parse_optional_page(value: Any) -> int | None:

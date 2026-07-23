@@ -23,6 +23,7 @@ from lectureops_agent.services.vector_store import (
 class FakeSupabaseClient:
     def __init__(self) -> None:
         self.upserts: list[dict] = []
+        self.upsert_failures: list[Exception] = []
         self.rpc_calls: list[dict] = []
         self.rpc_rows: list[dict] = []
         self.table_rows: list[dict] = []
@@ -62,6 +63,8 @@ class FakeSupabaseTable:
         return self
 
     def execute(self):
+        if self.mode == "upsert" and self.client.upsert_failures:
+            raise self.client.upsert_failures.pop(0)
         if self.mode == "select":
             rows = [
                 row
@@ -99,6 +102,29 @@ class BatchEmbeddingProvider(FixedEmbeddingProvider):
     def embed_many(self, *, texts: list[str]) -> list[list[float]]:
         self.batch_calls.append(texts)
         return [list(self.vector) for _ in texts]
+
+
+class StatementTimeoutError(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__(
+            {
+                "message": "canceling statement due to statement timeout",
+                "code": "57014",
+            }
+        )
+
+
+def make_chunk(index: int) -> MaterialChunk:
+    return MaterialChunk(
+        chunk_id=f"doc001-c{index:03d}",
+        project_id="project-001",
+        document_id="doc001",
+        source_name="sample.md",
+        source_type="md",
+        page=index,
+        text=f"Semantic embedding sample {index}.",
+        metadata={},
+    )
 
 
 class VectorStoreTests(unittest.TestCase):
@@ -285,6 +311,39 @@ class VectorStoreTests(unittest.TestCase):
         self.assertEqual(len(provider.batch_calls), 1)
         self.assertEqual(provider.batch_calls[0], [chunk.text for chunk in chunks])
         self.assertEqual(len(client.upserts[0]["rows"]), 2)
+
+    def test_supabase_vector_store_retries_statement_timeout_before_splitting(self):
+        client = FakeSupabaseClient()
+        client.upsert_failures = [StatementTimeoutError()]
+        store = SupabaseVectorStore(
+            url="https://example.supabase.co",
+            key="test-key",
+            client=client,
+            upsert_timeout_retries=1,
+            upsert_timeout_retry_delay_seconds=0,
+        )
+
+        store.upsert(project_id="project-001", chunks=[make_chunk(1), make_chunk(2)])
+
+        self.assertEqual([len(call["rows"]) for call in client.upserts], [2, 2])
+
+    def test_supabase_vector_store_splits_batch_after_statement_timeout_retries(self):
+        client = FakeSupabaseClient()
+        client.upsert_failures = [StatementTimeoutError()]
+        store = SupabaseVectorStore(
+            url="https://example.supabase.co",
+            key="test-key",
+            client=client,
+            upsert_timeout_retries=0,
+            upsert_timeout_retry_delay_seconds=0,
+        )
+
+        store.upsert(
+            project_id="project-001",
+            chunks=[make_chunk(index) for index in range(1, 5)],
+        )
+
+        self.assertEqual([len(call["rows"]) for call in client.upserts], [4, 2, 2])
 
     def test_supabase_vector_store_rejects_wrong_v2_dimensions(self):
         with self.assertRaisesRegex(ValueError, "1536-dimensional"):

@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | 공식 API XML/JSON client, service key 이중 인코딩 방지 | 완료 | `services/ncs_official_api.py` |
 | 재시도, 속도 제한, 페이지 순회, 할당량 상한 | 완료 | `services/ncs_official_api.py`, `services/ncs_sync_service.py` |
+| Supabase 대량 upsert timeout 복구 | 완료 | 8개 기본 batch, `57014` 재시도 후 이진 분할 |
 | canonical 변환, payload hash 변경 감지 | 완료 | `services/ncs_rag_chunk_builder.py` |
 | catalog·criteria·module upsert, KSA source/RAG 적재 | 완료 | `services/ncs_sync_service.py` |
 | 결정적 chunk ID, 기존 chunk 교체, 삭제 source 비활성화 | 완료 | `services/ncs_rag_chunk_builder.py`, `services/ncs_sync_service.py` |
@@ -37,6 +38,7 @@
 | `criteria_upsert_count=0` | 상세 응답·target·파싱 경로 확인 필요 | sync artifact와 실패 source 확인 |
 | criteria는 있으나 RAG hit가 없음 | chunk 또는 embedding 적재 불완전 | `chunk_upsert_count`와 검증 query 확인 |
 | 특정 단위만 긴급 보완 | 전체 백필을 기다릴 필요 없음 | `--unit-code <code>` 제한 실행 |
+| Supabase `57014` statement timeout | 대량 upsert가 DB 시간 제한 초과 | 8개 batch로 재시도 후 자동 분할, `--resume` 재실행 |
 
 ## 1. 목적
 
@@ -300,6 +302,7 @@ python scripts/sync_ncs_official_api.py --mode all --resume --embed
 - 기본 요청 예산: 일 5,000회
 - 기본 속도: 초당 2회, 환경변수로 조정
 - HTTP 429·5xx와 네트워크 오류: 지수 backoff로 최대 5회 재시도
+- Supabase PostgreSQL `57014` statement timeout: 같은 chunk batch를 2회 재시도하고, 계속 실패하면 절반으로 나눠 재귀적으로 적재한다. 단일 chunk도 반복 timeout이면 run을 실패로 기록하고 DB 부하·인덱스를 점검한다.
 - 재시도할 수 없는 4xx·스키마 오류: run을 `failed`로 기록하고 체크포인트에서 운영자가 재개
 - 단일 코드 긴급 보완: `--unit-code`로 제한 실행
 - 수행준거 0개 우선순위 큐와 dead-letter는 운영 고도화 단계에서 추가

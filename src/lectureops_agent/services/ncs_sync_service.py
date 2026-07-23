@@ -55,7 +55,7 @@ class NCSOfficialSyncOptions:
     resume: bool = False
     embed: bool = False
     dry_run: bool = False
-    embedding_batch_size: int = 32
+    embedding_batch_size: int = 8
 
     def __post_init__(self) -> None:
         if self.mode not in {"catalog", "detail", "modules", "all"}:

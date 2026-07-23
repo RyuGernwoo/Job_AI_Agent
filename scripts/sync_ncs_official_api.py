@@ -52,7 +52,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--embed", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--embedding-batch-size", type=int, default=32)
+    parser.add_argument(
+        "--embedding-batch-size",
+        type=int,
+        default=_env_int("LESSONPACK_NCS_SYNC_EMBEDDING_BATCH_SIZE", 8),
+        help="Maximum chunks to embed and upsert in one NCS sync batch (default: 8).",
+    )
     args = parser.parse_args(argv)
 
     if not _env_bool("LESSONPACK_NCS_API_ENABLED", False):
