@@ -22,7 +22,22 @@ from lectureops_agent.services.langfuse_tracing import (
 
 
 _LLM_TRACE_CONTEXT: ContextVar[dict[str, Any]] = ContextVar("lessonpack_llm_trace_context", default={})
+# 실제로 응답을 생성한 모델 id를 실행 컨텍스트별로 보관한다.
+# (fallback이 사용된 경우까지 로그에 정확한 모델을 남기기 위함)
+_RESOLVED_MODEL: ContextVar[str | None] = ContextVar("lessonpack_resolved_model", default=None)
 _LOGGER = logging.getLogger(__name__)
+
+
+def set_resolved_model(model: str | None) -> None:
+    _RESOLVED_MODEL.set(model.strip() if isinstance(model, str) and model.strip() else None)
+
+
+def get_resolved_model() -> str | None:
+    return _RESOLVED_MODEL.get()
+
+
+def reset_resolved_model() -> None:
+    _RESOLVED_MODEL.set(None)
 
 
 class LLMProvider(Protocol):
@@ -167,6 +182,8 @@ class LiteLLMProvider:
         started_at_ns = time.time_ns()
         try:
             response = litellm.completion(**request)
+            # 요청 모델이 아니라 응답이 알려주는 실제 서빙 모델을 기록한다. (fallback 시 fallback 모델)
+            set_resolved_model(_response_model(response) or self.model)
             response_text = _extract_message_content(response)
             response_cost = _calculate_completion_cost(litellm, response)
         except Exception as exc:
@@ -283,6 +300,12 @@ def _extract_message_content(response: Any) -> str:
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError("LLM provider returned empty content")
     return content.strip()
+
+
+def _response_model(response: Any) -> str | None:
+    """Extract the model id that actually served the completion (may be a fallback model)."""
+    model = response.get("model") if isinstance(response, dict) else getattr(response, "model", None)
+    return model.strip() if isinstance(model, str) and model.strip() else None
 
 
 def _litellm_metadata() -> dict[str, Any]:

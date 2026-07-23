@@ -10,10 +10,11 @@ llm:
   fallback_models:
     - gemini/gemini-3.5-flash
   timeout_seconds: 30
-  # Revisions run hotter than first-pass generation so a natural-language edit
-  # visibly diverges from the source package instead of being reproduced verbatim.
+  # Revisions run slightly hotter than first-pass generation so a natural-language edit
+  # diverges from the source package. Kept moderate so the strict output schema (sections,
+  # counts, citation ids) still validates; the revision prompt drives the actual change.
   temperature: 0.1
-  revision_temperature: 0.6
+  revision_temperature: 0.3
   callbacks:
     - langfuse_otel
 

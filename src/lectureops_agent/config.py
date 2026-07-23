@@ -18,9 +18,11 @@ class LLMConfig(BaseModel):
     success_callbacks: list[str] = Field(default_factory=list)
     # Sampling temperature for first-pass generation. Kept low for grounded, stable output.
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
-    # Higher temperature for natural-language revisions so the requested edit actually
-    # diverges from the source package instead of being reproduced near-identically.
-    revision_temperature: float = Field(default=0.6, ge=0.0, le=2.0)
+    # Slightly higher temperature for natural-language revisions so the edit diverges from the
+    # source package. Kept moderate so the strict output schema (exact sections, counts, and
+    # citation ids from the retrieved set) is still respected; the strengthened revision prompt
+    # is the primary driver of divergence, not temperature.
+    revision_temperature: float = Field(default=0.3, ge=0.0, le=2.0)
 
 
 class VectorStoreConfig(BaseModel):

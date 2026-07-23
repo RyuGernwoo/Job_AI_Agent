@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from lectureops_agent.app.main import create_app
 from lectureops_agent.models.schemas import MaterialChunk, NCSUnit, ProjectCreate
 from lectureops_agent.services.generation_service import generate_lesson_package_with_log
+from lectureops_agent.services.llm_provider import set_resolved_model
 
 
 class StaticLLMProvider:
@@ -126,6 +127,20 @@ class RevisionWithoutNCSCriteriaProvider(MissingNCSCriteriaProvider):
         payload = json.loads(super().generate(prompt=prompt))
         payload["practice"]["scenario"] = "초급 학습자용으로 단계를 나눈 함수 실습을 수행한다."
         return json.dumps(payload, ensure_ascii=False)
+
+
+class ServedModelReportingProvider(StructuredLLMProvider):
+    # name is the litellm config chain (primary + fallback); the log must instead
+    # record the actual served model the provider reports at request time.
+    name = "litellm:gpt-4o-mini -> gemini/gemini-3.5-flash"
+
+    def __init__(self, citation_id: str, served_model: str) -> None:
+        super().__init__(citation_id)
+        self.served_model = served_model
+
+    def generate(self, *, prompt: str) -> str:
+        set_resolved_model(self.served_model)
+        return super().generate(prompt=prompt)
 
 
 def sample_project_create() -> ProjectCreate:
@@ -294,6 +309,36 @@ class GenerationLogTests(unittest.TestCase):
             result.package.assessment.performance_task.ncs_alignment,
             source.assessment.performance_task.ncs_alignment,
         )
+
+    def test_generation_log_records_actual_served_model_when_reported(self):
+        project = sample_project_create().to_project(project_id="project-001")
+        chunk = sample_chunk(project.project_id)
+        # Simulate litellm falling back to the secondary model at request time.
+        provider = ServedModelReportingProvider(chunk.chunk_id, "gemini/gemini-3.5-flash")
+
+        result = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=[chunk],
+            llm_provider=provider,
+            package_id="package-served-model",
+        )
+
+        self.assertTrue(result.log.structured_output_applied)
+        # The log records the actual served model, not the provider config chain.
+        self.assertEqual(result.log.provider_name, "gemini/gemini-3.5-flash")
+
+    def test_generation_log_falls_back_to_provider_name_when_model_not_reported(self):
+        project = sample_project_create().to_project(project_id="project-001")
+        chunk = sample_chunk(project.project_id)
+
+        result = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=[chunk],
+            llm_provider=StructuredLLMProvider(chunk.chunk_id),
+            package_id="package-no-served-model",
+        )
+
+        self.assertEqual(result.log.provider_name, "structured-test")
 
     def test_fastapi_generate_stores_generation_log(self):
         provider = StaticLLMProvider()

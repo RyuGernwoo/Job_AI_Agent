@@ -203,9 +203,9 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
         self.assertEqual(provider.callbacks, ["langfuse_otel"])
         self.assertEqual(provider.schema_retries, 1)
         # Revisions must run hotter than first-pass generation by default so a natural-language
-        # edit visibly diverges from the source package.
+        # edit diverges from the source package, but moderate enough to keep the schema valid.
         self.assertEqual(provider.temperature, 0.1)
-        self.assertEqual(provider.revision_temperature, 0.6)
+        self.assertEqual(provider.revision_temperature, 0.3)
         self.assertGreater(provider.revision_temperature, provider.temperature)
 
     def test_create_llm_provider_from_config_uses_configured_temperatures(self):

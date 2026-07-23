@@ -12,9 +12,10 @@ llm:
   timeout_seconds: 30
   schema_retries: 1
   # Sampling temperature. First-pass generation stays low for grounded, stable output;
-  # revisions run hotter so a natural-language edit visibly diverges from the source package.
+  # revisions run slightly hotter to diverge from the source package, but moderate enough
+  # that the strict output schema (sections, counts, citation ids) still validates.
   temperature: 0.1
-  revision_temperature: 0.6
+  revision_temperature: 0.3
   callbacks:
     - langfuse_otel
 

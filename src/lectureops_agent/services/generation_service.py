@@ -29,7 +29,13 @@ from lectureops_agent.models.schemas import (
     Project,
     StandardTemplateMetadata,
 )
-from lectureops_agent.services.llm_provider import LLMProvider, MockLLMProvider, llm_trace_context
+from lectureops_agent.services.llm_provider import (
+    LLMProvider,
+    MockLLMProvider,
+    get_resolved_model,
+    llm_trace_context,
+    reset_resolved_model,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -151,6 +157,7 @@ def generate_lesson_package_with_log(
     provider_response = ""
     validation_errors: list[str] = []
     generation_prompt = prompt
+    resolved_model: str | None = None
     max_attempts = 1 + max(0, int(getattr(provider, "schema_retries", 0)))
     for attempt in range(1, max_attempts + 1):
         trace_metadata = {
@@ -170,8 +177,10 @@ def generate_lesson_package_with_log(
         }
         if source_package is not None:
             trace_metadata["generation_name"] = "lessonpack-ai-revision"
+        reset_resolved_model()
         with llm_trace_context(trace_metadata):
             provider_response = provider.generate(prompt=generation_prompt).strip()
+        resolved_model = get_resolved_model() or resolved_model
         if not provider_response:
             raise ValueError("llm provider returned empty response")
         provider_draft, validation_error = _parse_provider_draft_with_error(
@@ -238,7 +247,9 @@ def generate_lesson_package_with_log(
             raise ValueError(
                 "수정 요청이 패키지 내용에 반영되지 않았습니다. 변경할 항목과 원하는 결과를 더 구체적으로 작성하십시오."
             )
-        raise ValueError("LLM revision response did not match the required package schema")
+        raise ValueError(
+            "수정 결과가 형식 검증을 통과하지 못했습니다. 요청을 더 단순하고 구체적으로 바꾸거나 잠시 후 다시 시도해 주세요."
+        )
     output_status = PackageStatus.REGENERATED if source_package is not None else PackageStatus.GENERATED
     package = _build_package(
         project=project,
@@ -252,7 +263,7 @@ def generate_lesson_package_with_log(
         log_id=str(uuid4()),
         package_id=package.package_id,
         project_id=project.project_id,
-        provider_name=provider.name,
+        provider_name=resolved_model or provider.name,
         prompt=prompt,
         response_text=provider_response,
         structured_output_applied=provider_draft is not None,
