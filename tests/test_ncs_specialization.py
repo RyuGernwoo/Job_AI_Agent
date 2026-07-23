@@ -28,7 +28,12 @@ from lectureops_agent.services.generation_service import (
     generate_lesson_package,
     generate_lesson_package_with_log,
 )
-from lectureops_agent.services.ncs_catalog_dataset import catalog_row, parse_ncs_catalog_markdown
+from lectureops_agent.services.ncs_catalog_dataset import (
+    catalog_row,
+    load_official_ncs_catalog,
+    merge_ncs_catalogs,
+    parse_ncs_catalog_markdown,
+)
 from lectureops_agent.services.rag_repository import InMemoryRAGRepository
 from lectureops_agent.services.rag_service import retrieve_evidence
 from lectureops_agent.services.vector_store import InMemoryVectorStore
@@ -329,6 +334,65 @@ class NCSSpecializationTests(unittest.TestCase):
         self.assertEqual(created.json()["ncs_units"][0]["unit_name"], "공식 프로그래밍")
         self.assertEqual(created.json()["ncs_units"][0]["catalog_version"], "24v1")
 
+    def test_catalog_search_prioritizes_exact_code_and_reports_zero_criteria(self):
+        units = [
+            NCSCatalogUnit(
+                unit_code="2001020205_23v4",
+                unit_name="응용SW엔지니어링",
+                criteria=[],
+            ),
+            NCSCatalogUnit(
+                unit_code="2001020205_23v4-RELATED",
+                unit_name="응용SW엔지니어링 관련",
+                criteria=[],
+            ),
+        ]
+        repository = InMemoryRAGRepository(ncs_catalog=units)
+
+        results = repository.search_ncs_catalog("2001020205_23v4", limit=10)
+
+        self.assertEqual(results[0].unit_code, "2001020205_23v4")
+        self.assertEqual(results[0].criteria, [])
+
+    def test_official_catalog_without_rag_criteria_is_downgraded_for_manual_criteria(self):
+        catalog_unit = NCSCatalogUnit(
+            unit_code="NCS-001",
+            unit_name="공식 프로그래밍",
+            catalog_version="25v1",
+            criteria=[],
+        )
+        repository = InMemoryRAGRepository(ncs_catalog=[catalog_unit])
+        with patch.dict(
+            os.environ,
+            {"LESSONPACK_ENV_FILE": str(ROOT / "missing-test.env")},
+            clear=True,
+        ):
+            client = TestClient(
+                create_app(
+                    vector_store=InMemoryVectorStore(),
+                    rag_repository=repository,
+                )
+            )
+        payload = ncs_project().model_dump(mode="json")
+        payload["ncs_units"][0].update(
+            {
+                "unit_name": "사용자 입력 명칭",
+                "source_status": "verified",
+            }
+        )
+
+        created = client.post("/api/projects", json=payload)
+
+        self.assertEqual(created.status_code, 200)
+        resolved = created.json()["ncs_units"][0]
+        self.assertEqual(resolved["unit_name"], "공식 프로그래밍")
+        self.assertEqual(resolved["source_status"], "needs_review")
+        self.assertEqual(resolved["catalog_version"], "25v1")
+        self.assertEqual(
+            resolved["target_criteria"],
+            ["함수의 입력과 반환값을 활용할 수 있다."],
+        )
+
     def test_catalog_parser_extracts_units_and_criteria(self):
         markdown = """---
 ncs_hierarchy:
@@ -359,6 +423,43 @@ source_url: https://www.ncs.go.kr/
         self.assertEqual(units[0].catalog_version, "24v1")
         self.assertEqual(len(units[0].criteria), 2)
         self.assertEqual(len(catalog_row(units[0])["source_hash"]), 64)
+
+    def test_official_csv_catalog_merges_rag_details_and_keeps_uncovered_units_empty(self):
+        csv_text = (
+            "분류번호,명칭,수준,훈련시간\n"
+            "0101010101_17v2,공적개발원조사업 개발전략수립,7,80\n"
+            "2001020205_23v4,응용SW엔지니어링,5,40\n"
+        )
+        criterion = NCSCatalogCriterion(
+            criterion_code="2001020205_23v4.1.1",
+            element_code="2001020205_23v4.1",
+            element_name="요구사항 확인하기",
+            text="요구사항을 확인할 수 있다.",
+        )
+        detailed = NCSCatalogUnit(
+            unit_code="2001020205_23v4",
+            unit_name="응용SW엔지니어링",
+            definition="응용 소프트웨어를 개발하는 능력이다.",
+            criteria=[criterion],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "official.csv"
+            path.write_bytes(csv_text.encode("cp949"))
+            official = load_official_ncs_catalog(path)
+        merged = merge_ncs_catalogs(
+            official_units=official,
+            detailed_units=[detailed],
+        )
+
+        self.assertEqual(len(merged), 2)
+        by_code = {unit.unit_code: unit for unit in merged}
+        self.assertEqual(by_code["0101010101_17v2"].criteria, [])
+        self.assertEqual(by_code["0101010101_17v2"].level, 7)
+        self.assertEqual(len(by_code["2001020205_23v4"].criteria), 1)
+        self.assertEqual(
+            by_code["2001020205_23v4"].definition,
+            "응용 소프트웨어를 개발하는 능력이다.",
+        )
 
 
 if __name__ == "__main__":

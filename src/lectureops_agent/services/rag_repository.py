@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Iterable, Protocol
 from uuid import uuid4
 
 from lectureops_agent.models.schemas import (
@@ -83,17 +83,11 @@ class InMemoryRAGRepository:
         self.generation_runs[run.package_id] = run
 
     def search_ncs_catalog(self, query: str, *, limit: int) -> list[NCSCatalogUnit]:
-        normalized = " ".join(query.split()).casefold()
-        if not normalized:
-            return []
-        matches = [
-            unit
-            for unit in self.ncs_catalog.values()
-            if normalized in unit.unit_code.casefold()
-            or normalized in unit.unit_name.casefold()
-            or any(normalized in value.casefold() for value in unit.classification.values())
-        ]
-        return sorted(matches, key=lambda item: (item.unit_name, item.unit_code))[:limit]
+        return _rank_ncs_catalog_results(
+            self.ncs_catalog.values(),
+            query=query,
+            limit=limit,
+        )
 
     def get_ncs_catalog_unit(self, unit_code: str) -> NCSCatalogUnit | None:
         return self.ncs_catalog.get(unit_code.strip().casefold())
@@ -215,15 +209,19 @@ class SupabaseRAGRepository:
         term = _postgrest_search_term(query)
         if not term:
             return []
+        candidate_limit = min(max(limit * 10, 100), 500)
         response = (
             self._client.table(self.ncs_catalog_table)
             .select("*")
             .or_(f"unit_code.ilike.%{term}%,unit_name.ilike.%{term}%")
-            .order("unit_name")
-            .limit(limit)
+            .limit(candidate_limit)
             .execute()
         )
-        return [NCSCatalogUnit.model_validate(row) for row in _response_data(response)]
+        return _rank_ncs_catalog_results(
+            (NCSCatalogUnit.model_validate(row) for row in _response_data(response)),
+            query=query,
+            limit=limit,
+        )
 
     def get_ncs_catalog_unit(self, unit_code: str) -> NCSCatalogUnit | None:
         response = (
@@ -280,3 +278,36 @@ def _postgrest_search_term(value: str) -> str:
         for character in normalized
         if character.isalnum() or character in {" ", "_", "-"}
     )
+
+
+def _rank_ncs_catalog_results(
+    units: Iterable[NCSCatalogUnit],
+    *,
+    query: str,
+    limit: int,
+) -> list[NCSCatalogUnit]:
+    normalized = " ".join(query.split()).casefold()
+    if not normalized or limit <= 0:
+        return []
+
+    ranked: list[tuple[int, int, str, NCSCatalogUnit]] = []
+    for unit in units:
+        code = unit.unit_code.casefold()
+        name = unit.unit_name.casefold()
+        if normalized == code:
+            rank = 0
+        elif normalized == name:
+            rank = 1
+        elif code.startswith(normalized):
+            rank = 2
+        elif name.startswith(normalized):
+            rank = 3
+        elif normalized in code:
+            rank = 4
+        elif normalized in name:
+            rank = 5
+        else:
+            continue
+        ranked.append((rank, len(unit.unit_name), unit.unit_code, unit))
+    ranked.sort(key=lambda item: item[:3])
+    return [item[3] for item in ranked[:limit]]

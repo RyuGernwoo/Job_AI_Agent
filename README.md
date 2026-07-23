@@ -52,6 +52,7 @@
 | ✅ **평가 문항 생성** | 객관식 문항과 실습형 평가 과제 · 루브릭을 함께 제공 |
 | 📚 **근거 출처 표시** | 생성 근거가 된 교재·NCS 문단을 산출물에 함께 정리 |
 | **강의 유형 분리** | NCS 기반 강의와 일반 강의를 구분해 입력·검색·생성·내보내기 정책 적용 |
+| **NCS 전체 카탈로그 검색** | 공식 능력단위 코드·명칭 13,442건 검색, 상세 RAG 미적재 분야는 수행준거 0개로 구분 |
 | **NCS 수행준거 점검** | 선택한 수행준거의 교안·실습·평가 연결률과 누락 경고 제공 |
 | 🗂️ **사용자 자료 fallback** | 공통 NCS 자료가 없는 분야는 업로드 교재를 프로젝트 근거로 사용 |
 | 🔁 **자연어 재생성** | "난이도를 낮춰줘", "실습을 하나 더" 처럼 말로 수정 |
@@ -200,11 +201,14 @@ python scripts\check_deployment.py http://localhost:8000
 
 운영 UI는 프로젝트 입력의 `retrieval_queries`를 교재 업로드 직후 `/rag/generate`에 전달합니다. 서버는 query별 검색 결과를 하나의 retrieval run으로 병합하고 중복 chunk를 제거합니다. `/rag/retrieve`와 retrieval run 기반 생성은 API 호환성과 진단 용도로 유지합니다.
 
-운영 Supabase에는 API 배포 전 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql)과 [`006_ncs_course_specialization.sql`](supabase/migrations/006_ncs_course_specialization.sql)을 순서대로 적용해야 합니다. NCS catalog는 migration 적용 후 다음 명령으로 생성·적재합니다.
+운영 Supabase에는 API 배포 전 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql), [`006_ncs_course_specialization.sql`](supabase/migrations/006_ncs_course_specialization.sql), [`007_ncs_catalog_search.sql`](supabase/migrations/007_ncs_catalog_search.sql)을 순서대로 적용해야 합니다. NCS catalog는 한국산업인력공단의 공식 전체 능력단위 CSV와 기존 상세 RAG 데이터를 병합해 적재합니다.
 
 ```powershell
-python scripts\prepare_ncs_catalog.py
-python scripts\prepare_ncs_catalog.py --upload
+python scripts\prepare_ncs_catalog.py `
+  --official-csv "C:\path\to\한국산업인력공단_국가직무능력표준 정보_20251231.csv"
+python scripts\prepare_ncs_catalog.py `
+  --official-csv "C:\path\to\한국산업인력공단_국가직무능력표준 정보_20251231.csv" `
+  --upload
 ```
 
 ## 📁 프로젝트 구조
@@ -243,6 +247,7 @@ GitHub Actions에서 테스트와 배포를 분리해 운영합니다.
 - 🔎 [RAG 구축 및 연동 기획서](docs/02_implementation-readiness/07_RAG_구축_연동_기획서.md)
 - 🗂️ [NCS 확장 데이터셋 처리 및 RAG 검증 결과](docs/02_implementation-readiness/09_NCS_확장_데이터셋_처리_검증_결과.md)
 - [NCS 특화 기능 보완 기획서 및 구현 현황](docs/02_implementation-readiness/10_NCS_특화_기능_보완_기획서.md)
+- [NCS 전체 카탈로그 검색 구축 및 운영 기준](docs/02_implementation-readiness/11_NCS_전체_카탈로그_검색_구축.md)
 - ✅ [MVP 품질 평가 결과](docs/04_validation/01_MVP_품질_평가_결과.md)
 - 🚀 [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
 

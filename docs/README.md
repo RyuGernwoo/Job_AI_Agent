@@ -27,6 +27,7 @@
 8. [GCE Docker CI/CD 배포 계획서](02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
 9. [체크포인트 보완 기획서](02_implementation-readiness/06_체크포인트_보완_기획서.md)
 10. [NCS 특화 기능 보완 기획서](02_implementation-readiness/10_NCS_특화_기능_보완_기획서.md)
+11. [NCS 전체 카탈로그 검색 구축 및 운영 기준](02_implementation-readiness/11_NCS_전체_카탈로그_검색_구축.md)
 
 ## 문서 구조
 
@@ -54,6 +55,7 @@ docs/
     08_자연어_패키지_재생성_구현서.md
     09_NCS_확장_데이터셋_처리_검증_결과.md
     10_NCS_특화_기능_보완_기획서.md
+    11_NCS_전체_카탈로그_검색_구축.md
   03_ui-lovable/
     01_Lovable_UI_생성_프롬프트.md
   04_validation/
@@ -72,7 +74,7 @@ docs/
 | API | FastAPI MVP 구현 |
 | UI | Lovable 웹 UI 연동 |
 | 데이터셋 | 기존 6개 선별 원천 43개 chunk + NCS 확장 218개 Markdown·19,103개 chunk |
-| NCS 특화 | NCS/일반 강의 분기, 고유 능력단위 202개·수행준거 2,452개 catalog 생성, 수행준거 커버리지 구현 |
+| NCS 특화 | NCS/일반 강의 분기, 공식 능력단위 13,442개 검색, 상세 RAG 능력단위 202개·수행준거 2,452개 병합, 수행준거 커버리지 구현 |
 | Vector Store | Supabase Postgres + pgvector, 1536차원 semantic embedding 및 HNSW 검색 적용 |
 | LLMOps | LiteLLM, OpenAI primary, Gemini fallback, Langfuse tracing 적용 |
 | Export | DOCX/PPTX export 구현 |

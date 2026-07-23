@@ -689,7 +689,7 @@ def _resolve_verified_ncs_units(
         return payload
     resolved_units: list[NCSUnit] = []
     for unit in payload.ncs_units:
-        if unit.source_status != NCSSourceStatus.VERIFIED:
+        if unit.source_status == NCSSourceStatus.USER_PROVIDED:
             resolved_units.append(unit)
             continue
         try:
@@ -700,11 +700,29 @@ def _resolve_verified_ncs_units(
                 status_code=503,
                 detail="NCS catalog verification is temporarily unavailable.",
             ) from exc
-        if catalog_unit is None:
+        if catalog_unit is None and unit.source_status == NCSSourceStatus.VERIFIED:
             raise HTTPException(
                 status_code=422,
                 detail=f"공식 NCS catalog에서 능력단위 {unit.unit_code}를 확인할 수 없습니다.",
             )
+        if catalog_unit is None:
+            resolved_units.append(unit)
+            continue
+        if not catalog_unit.criteria:
+            resolved_units.append(
+                unit.model_copy(
+                    update={
+                        "unit_name": catalog_unit.unit_name,
+                        "source_status": NCSSourceStatus.NEEDS_REVIEW,
+                        "catalog_version": catalog_unit.catalog_version,
+                        "classification": catalog_unit.classification,
+                    }
+                )
+            )
+            continue
+        if unit.source_status != NCSSourceStatus.VERIFIED:
+            resolved_units.append(unit)
+            continue
         available_criteria = {item.text for item in catalog_unit.criteria}
         unavailable_criteria = [
             criterion for criterion in unit.target_criteria if criterion not in available_criteria

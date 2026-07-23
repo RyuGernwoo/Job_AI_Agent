@@ -18,6 +18,8 @@ from lectureops_agent.services.ncs_catalog_dataset import (
     build_ncs_catalog,
     catalog_row,
     criterion_rows,
+    load_official_ncs_catalog,
+    merge_ncs_catalogs,
 )
 
 
@@ -33,15 +35,38 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=ROOT / "data" / "processed" / "ncs_catalog.jsonl",
     )
+    parser.add_argument(
+        "--official-csv",
+        type=Path,
+        help=(
+            "HRDKorea official NCS CSV containing 분류번호, 명칭, 수준, 훈련시간. "
+            "Units absent from local RAG data are retained with zero criteria."
+        ),
+    )
     parser.add_argument("--upload", action="store_true", help="Upsert catalog rows into Supabase.")
     parser.add_argument("--batch-size", type=int, default=100)
     args = parser.parse_args(argv)
     if args.batch_size <= 0:
         parser.error("--batch-size must be greater than 0")
 
-    units = build_ncs_catalog(args.markdown_root.resolve())
+    detailed_units = (
+        build_ncs_catalog(args.markdown_root.resolve())
+        if args.markdown_root.exists()
+        else []
+    )
+    official_units = (
+        load_official_ncs_catalog(args.official_csv.resolve())
+        if args.official_csv is not None
+        else []
+    )
+    units = merge_ncs_catalogs(
+        official_units=official_units,
+        detailed_units=detailed_units,
+    )
     if not units:
-        raise RuntimeError(f"No NCS catalog units found under {args.markdown_root}")
+        raise RuntimeError(
+            "No NCS catalog units found. Provide --official-csv or a valid --markdown-root."
+        )
     rows = [catalog_row(unit) for unit in units]
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -56,9 +81,14 @@ def main(argv: list[str] | None = None) -> int:
 
     result = {
         "markdown_root": str(args.markdown_root.resolve()),
+        "official_csv": (
+            str(args.official_csv.resolve()) if args.official_csv is not None else None
+        ),
         "output": str(output),
         "unit_count": len(units),
+        "official_unit_count": len(official_units),
         "criterion_count": len(criteria),
+        "rag_available_unit_count": sum(bool(unit.criteria) for unit in units),
         "units_without_criteria": sum(not unit.criteria for unit in units),
         "uploaded": args.upload,
     }

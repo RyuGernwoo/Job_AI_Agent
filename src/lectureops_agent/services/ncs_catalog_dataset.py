@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import re
 from pathlib import Path
@@ -20,6 +22,7 @@ _ELEMENT_BLOCK = re.compile(
 )
 _CRITERION_START = re.compile(r"^(?P<number>\d+\.\d+)\s+(?P<text>.+)$")
 _VERSION = re.compile(r"_(?P<version>\d{2}v\d+)", re.IGNORECASE)
+OFFICIAL_NCS_CATALOG_URL = "https://www.data.go.kr/data/15083321/fileData.do"
 
 
 def build_ncs_catalog(markdown_root: Path) -> list[NCSCatalogUnit]:
@@ -30,6 +33,76 @@ def build_ncs_catalog(markdown_root: Path) -> list[NCSCatalogUnit]:
             if current is None or len(unit.criteria) > len(current.criteria):
                 units[unit.unit_code] = unit
     return sorted(units.values(), key=lambda item: item.unit_code)
+
+
+def load_official_ncs_catalog(csv_path: Path) -> list[NCSCatalogUnit]:
+    """Load the HRDKorea official unit-code/name CSV without inventing criteria."""
+    text = _decode_official_csv(csv_path.read_bytes())
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames is None:
+        raise ValueError("official NCS CSV must include a header row")
+    normalized_headers = {header.strip().lstrip("\ufeff") for header in reader.fieldnames}
+    required_headers = {"분류번호", "명칭"}
+    if not required_headers.issubset(normalized_headers):
+        raise ValueError(
+            "official NCS CSV must include the 분류번호 and 명칭 columns"
+        )
+
+    units: dict[str, NCSCatalogUnit] = {}
+    for row_number, raw_row in enumerate(reader, start=2):
+        row = {
+            str(key).strip().lstrip("\ufeff"): str(value or "").strip()
+            for key, value in raw_row.items()
+            if key is not None
+        }
+        unit_code = row.get("분류번호", "")
+        unit_name = row.get("명칭", "")
+        if not unit_code and not unit_name:
+            continue
+        if not unit_code or not unit_name:
+            raise ValueError(
+                f"official NCS CSV row {row_number} requires both 분류번호 and 명칭"
+            )
+        level_text = row.get("수준", "")
+        level = int(level_text) if level_text.isdigit() else None
+        if level is not None and not 1 <= level <= 8:
+            level = None
+        version_match = _VERSION.search(unit_code)
+        units[unit_code] = NCSCatalogUnit(
+            unit_code=unit_code,
+            unit_name=" ".join(unit_name.split()),
+            level=level,
+            catalog_version=(version_match.group("version") if version_match else None),
+            source_url=OFFICIAL_NCS_CATALOG_URL,
+            criteria=[],
+        )
+    return sorted(units.values(), key=lambda item: item.unit_code)
+
+
+def merge_ncs_catalogs(
+    *,
+    official_units: Iterable[NCSCatalogUnit],
+    detailed_units: Iterable[NCSCatalogUnit],
+) -> list[NCSCatalogUnit]:
+    """Overlay locally available RAG details on the complete official catalog."""
+    merged = {unit.unit_code: unit for unit in official_units}
+    for detailed in detailed_units:
+        official = merged.get(detailed.unit_code)
+        if official is None:
+            merged[detailed.unit_code] = detailed
+            continue
+        merged[detailed.unit_code] = official.model_copy(
+            update={
+                "unit_name": detailed.unit_name or official.unit_name,
+                "definition": detailed.definition or official.definition,
+                "classification": detailed.classification or official.classification,
+                "level": detailed.level if detailed.level is not None else official.level,
+                "catalog_version": detailed.catalog_version or official.catalog_version,
+                "source_url": detailed.source_url or official.source_url,
+                "criteria": detailed.criteria,
+            }
+        )
+    return sorted(merged.values(), key=lambda item: item.unit_code)
 
 
 def parse_ncs_catalog_markdown(path: Path) -> list[NCSCatalogUnit]:
@@ -116,6 +189,15 @@ def criterion_rows(units: Iterable[NCSCatalogUnit]) -> list[dict[str, Any]]:
 
 def source_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _decode_official_csv(content: bytes) -> str:
+    for encoding in ("utf-8-sig", "cp949"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("official NCS CSV must be encoded as UTF-8 or CP949")
 
 
 def _criteria_from_block(

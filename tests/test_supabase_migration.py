@@ -77,6 +77,16 @@ class SupabaseMigrationTests(unittest.TestCase):
         self.assertIn("public.lessonpack_ncs_criteria", sql)
         self.assertIn("criterion_code text primary key", sql)
 
+    def test_ncs_catalog_search_migration_adds_trigram_indexes(self):
+        sql = (
+            ROOT / "supabase" / "migrations" / "007_ncs_catalog_search.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("create extension if not exists pg_trgm", sql)
+        self.assertIn("lessonpack_ncs_catalog_unit_code_trgm_idx", sql)
+        self.assertIn("lessonpack_ncs_catalog_unit_name_trgm_idx", sql)
+        self.assertIn("criteria array means LessonPack RAG details are not loaded", sql)
+
 
 if __name__ == "__main__":
     unittest.main()
