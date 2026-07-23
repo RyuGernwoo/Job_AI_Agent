@@ -15,7 +15,7 @@ llm:
   # revisions run slightly hotter to diverge from the source package, but moderate enough
   # that the strict output schema (sections, counts, citation ids) still validates.
   temperature: 0.1
-  revision_temperature: 0.3
+  revision_temperature: 0.5
   callbacks:
     - langfuse_otel
 

@@ -14,7 +14,7 @@ llm:
   # diverges from the source package. Kept moderate so the strict output schema (sections,
   # counts, citation ids) still validates; the revision prompt drives the actual change.
   temperature: 0.1
-  revision_temperature: 0.3
+  revision_temperature: 0.5
   callbacks:
     - langfuse_otel
 

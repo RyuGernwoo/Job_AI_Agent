@@ -143,6 +143,20 @@ class ServedModelReportingProvider(StructuredLLMProvider):
         return super().generate(prompt=prompt)
 
 
+class TenQuestionRevisionProvider(StructuredLLMProvider):
+    # On revision, expand the assessment to 10 multiple_choice questions to exercise the
+    # variable question-count support (schema range + NCS criteria index guard).
+    name = "ten-question-revision-test"
+
+    def generate(self, *, prompt: str) -> str:
+        payload = json.loads(super().generate(prompt=prompt))
+        if "Revision mode:" in prompt:
+            first = payload["assessment"]["multiple_choice"][0]
+            payload["assessment"]["multiple_choice"] = [dict(first) for _ in range(10)]
+            payload["practice"]["scenario"] = "초급자를 위해 10문항 평가로 확장한 함수 실습을 수행한다."
+        return json.dumps(payload, ensure_ascii=False)
+
+
 def sample_project_create() -> ProjectCreate:
     return ProjectCreate(
         course_type="ncs",
@@ -309,6 +323,33 @@ class GenerationLogTests(unittest.TestCase):
             result.package.assessment.performance_task.ncs_alignment,
             source.assessment.performance_task.ncs_alignment,
         )
+
+    def test_ncs_revision_supports_changing_multiple_choice_count(self):
+        project = sample_project_create().to_project(project_id="project-001")
+        chunk = sample_chunk(project.project_id)
+        source = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=[chunk],
+            llm_provider=StructuredLLMProvider(chunk.chunk_id),
+            package_id="package-source",
+        ).package
+        self.assertEqual(len(source.assessment.multiple_choice), 5)
+
+        result = generate_lesson_package_with_log(
+            project=project,
+            retrieved_chunks=[chunk],
+            llm_provider=TenQuestionRevisionProvider(chunk.chunk_id),
+            package_id="package-10q",
+            source_package=source,
+            revision_instruction="객관식 평가 문항을 10개로 맞춰 주세요.",
+        )
+
+        self.assertTrue(result.log.structured_output_applied)
+        self.assertEqual(result.package.status.value, "regenerated")
+        # The revision changed the question count without a schema rejection or index error.
+        self.assertEqual(len(result.package.assessment.multiple_choice), 10)
+        # NCS alignment stays valid for every question (source-preserved + newly added).
+        self.assertTrue(all(q.ncs_alignment for q in result.package.assessment.multiple_choice))
 
     def test_generation_log_records_actual_served_model_when_reported(self):
         project = sample_project_create().to_project(project_id="project-001")

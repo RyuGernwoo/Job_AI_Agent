@@ -22,7 +22,7 @@ class LLMConfig(BaseModel):
     # source package. Kept moderate so the strict output schema (exact sections, counts, and
     # citation ids from the retrieved set) is still respected; the strengthened revision prompt
     # is the primary driver of divergence, not temperature.
-    revision_temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+    revision_temperature: float = Field(default=0.5, ge=0.0, le=2.0)
 
 
 class VectorStoreConfig(BaseModel):

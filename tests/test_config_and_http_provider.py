@@ -205,7 +205,7 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
         # Revisions must run hotter than first-pass generation by default so a natural-language
         # edit diverges from the source package, but moderate enough to keep the schema valid.
         self.assertEqual(provider.temperature, 0.1)
-        self.assertEqual(provider.revision_temperature, 0.3)
+        self.assertEqual(provider.revision_temperature, 0.5)
         self.assertGreater(provider.revision_temperature, provider.temperature)
 
     def test_create_llm_provider_from_config_uses_configured_temperatures(self):
