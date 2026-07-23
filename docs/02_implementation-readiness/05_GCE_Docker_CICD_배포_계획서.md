@@ -186,7 +186,7 @@ data/processed/
 
 - `data/gold/`는 CI 평가에 필요할 수 있으나 production image에는 기본적으로 포함하지 않는다.
 - 실제 운영에서 검색용 데이터는 Supabase에 ingest된 상태여야 하며, 원천 데이터 파일을 image에 넣지 않는다.
-- `config.yaml`에는 로컬 설정이 들어갈 수 있으므로 image에는 `config.example.yaml`만 포함하고, 서버에서는 `.env`로 `LESSONPACK_CONFIG` 사용 여부를 결정한다.
+- 현재 image는 재현 가능한 기본 실행을 위해 `config.example.yaml`과 secret이 없는 `config.yaml`을 함께 포함한다. 운영 provider, API key, Supabase와 embedding 값은 GCE의 `.env` 및 GitHub Secrets에서 주입하며 설정 파일에 비밀값을 기록하지 않는다.
 
 ### 6.3 Docker Compose 기준
 

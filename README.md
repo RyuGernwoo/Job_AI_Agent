@@ -1,271 +1,199 @@
 <div align="center">
 
-<img src="data/main_image.png" width="130" alt="LessonPack AI 로고" />
+<img src="data/main_image.png" width="128" alt="LessonPack AI 아이콘" />
 
-# LessonPack AI 📚
+# LessonPack AI
 
-**교안 · 실습 · 평가를 한 번에, 강의 준비를 위한 AI 패키지 생성 서비스**
+**교재와 NCS 근거를 바탕으로 교안·실습·평가 패키지를 생성하는 직업훈련 강의 운영 보조 서비스**
 
-과정 정보와 교재만 넣으면, 업로드 교재와 필요 시 **NCS 근거**를 바탕으로<br/>
-강의 교안 · 실습 과제 · 평가 문항을 만들어 **DOCX / PPTX**로 내려주는 AI 서비스입니다.
-
-<img src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white" alt="Python" />
-<img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
-<img src="https://img.shields.io/badge/LiteLLM-6E56CF?logo=litellm&logoColor=white" alt="LiteLLM" />
-<img src="https://img.shields.io/badge/Supabase-3FCF8E?logo=supabase&logoColor=white" alt="Supabase" />
-<img src="https://img.shields.io/badge/Langfuse-0A0A0A?logo=langfuse&logoColor=white" alt="Langfuse" />
-<img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" alt="Docker" />
-
-<br/>
-
-[🌐 서비스 바로가기](https://lessonpack-ai.lovable.app/) · [📑 API 문서 (Swagger)](https://34.47.92.210.nip.io/docs) · [💻 GitHub](https://github.com/RyuGernwoo)
+[서비스 이용](https://lessonpack-ai.lovable.app/) ·
+[API 문서](https://34.47.92.210.nip.io/docs) ·
+[백엔드 저장소](https://github.com/RyuGernwoo/Job_AI_Agent) ·
+[프론트엔드 저장소](https://github.com/RyuGernwoo/lessonpack-ai)
 
 </div>
 
----
+## 서비스 이용
 
-## LessonPack AI란? 🤔
+LessonPack AI는 과정 정보와 교재를 입력받아 다음 산출물을 한 번에 생성합니다.
 
-직업훈련 강의 하나를 준비하려면 교안, 실습 시나리오, 평가 문항, 그리고 그 근거가 되는 교재·**NCS 능력단위**까지 여러 자료를 오가며 따로 만들어야 합니다. **LessonPack AI**는 이 과정을 **자료 업로드 → AI 생성 → 파일 다운로드**의 한 흐름으로 묶어 줍니다.
+- 학습목표와 시간 배분을 반영한 강의 교안
+- 단계별 실습 과제와 제출물
+- 객관식 문항, 실습형 평가와 루브릭
+- 생성에 사용된 교재·NCS 근거 목록
+- DOCX 및 PPTX 다운로드 파일
 
-> ### 이런 분들을 위해 만들었습니다
-> - 🧑‍🏫 새 차시 강의안을 **빠르게 초안화**하고 싶은 **직업훈련 강사**
-> - 📗 교재 내용과 **NCS 능력단위**를 함께 반영해야 하는 **교육 담당자**
-> - 📝 실습과 평가 문항을 **같은 학습목표에 맞춰** 구성하고 싶은 **교안 작성자**
+별도의 설치나 API 키 없이 [배포 서비스](https://lessonpack-ai.lovable.app/)에서 사용할 수 있습니다.
 
-강의 유형을 `NCS 기반` 또는 `일반 강의`로 선택하고 과정명·차시·학습목표와 교재를 입력하면, 관련 근거 문단을 검색해 교안·실습·평가 초안을 한 번에 생성합니다. NCS 기반 강의는 대상 수행준거까지 연결하고, 일반 강의는 NCS를 주장하지 않습니다. 공통 데이터에 해당 NCS 분야가 없더라도 **사용자가 업로드한 교재를 우선 근거로 사용**합니다. 마음에 들지 않으면 **자연어로 수정 사항을 말하기만** 하면 새 버전을 만들어 줍니다.
+### 이용 순서
 
-> ⚠️ LessonPack AI는 강의 준비를 돕는 **초안 생성 도구**입니다. 생성 결과는 강사의 검토 후 사용하는 것을 전제로 합니다.
+1. 강의 유형과 과정 정보를 입력합니다. 첫 화면은 `NCS 기반 강의`가 기본이며 일반 강의로 변경할 수 있습니다.
+2. 선택 사항으로 PowerPoint 템플릿을 등록하고, 강의 근거로 사용할 PDF·Markdown·TXT 교재를 업로드합니다.
+3. 교재 업로드 후 RAG 검색과 패키지 생성이 자동으로 진행됩니다.
+4. 결과를 확인하고 필요하면 자연어로 수정 지시를 입력한 뒤 DOCX 또는 PPTX로 내려받습니다.
 
-<br/>
+패키지 생성 후 이전 단계로 돌아가면 입력값은 조회 전용으로 유지됩니다. 새로운 과정이 필요할 때는 다운로드 단계의 `새 프로젝트 시작`을 사용합니다.
 
-# 👤 일반 사용자 가이드
+### 주요 기능
 
-> 배포된 LessonPack AI를 이용하는 분들을 위한 안내입니다. **설치 · API 키 · 서버 설정 없이**, 웹 페이지에 접속해 정보를 입력하기만 하면 바로 시작할 수 있습니다.
+| 기능 | 내용 |
+| --- | --- |
+| NCS·일반 강의 분리 | 강의 유형에 따라 입력 검증, 근거 검색, 생성, 품질 점검 정책을 구분 |
+| NCS 카탈로그 검색 | 공식 능력단위 코드와 명칭을 검색하고 상세 수행준거 적재 상태를 표시 |
+| 프로젝트 우선 RAG | 사용자가 올린 교재를 우선 검색하고 공통 데이터로 부족한 근거를 보완 |
+| 패키지 자동 생성 | 교안·실습·평가를 동일한 학습목표와 근거에 맞춰 생성 |
+| 자연어 재생성 | 기존 패키지를 기준으로 수정 지시를 반영한 새 버전 생성 |
+| PPT 템플릿 | 등록한 `.pptx` 마스터와 레이아웃을 적용하고 실패 시 기본 디자인으로 대체 |
+| 근거 중심 내보내기 | 본문 가독성을 유지하고 마지막 단원에 출처를 모아 표시 |
 
-## ✨ 주요 기능
+### NCS 데이터 범위
 
-| 기능 | 한눈에 보기 |
-|:---|:---|
-| 📄 **강의 교안 생성** | 과정·차시·학습목표에 맞춰 강의 교안 초안을 자동 작성 |
-| 🧪 **실습 과제 생성** | 수업 목표에 맞는 실습 시나리오와 수행 절차를 구성 |
-| ✅ **평가 문항 생성** | 객관식 문항과 실습형 평가 과제 · 루브릭을 함께 제공 |
-| 📚 **근거 출처 표시** | 생성 근거가 된 교재·NCS 문단을 산출물에 함께 정리 |
-| **강의 유형 분리** | NCS 기반 강의와 일반 강의를 구분해 입력·검색·생성·내보내기 정책 적용 |
-| **NCS 전체 카탈로그 검색** | 공식 능력단위 코드·명칭 13,442건 검색, 상세 RAG 미적재 분야는 수행준거 0개로 구분 |
-| **NCS 수행준거 점검** | 선택한 수행준거의 교안·실습·평가 연결률과 누락 경고 제공 |
-| 🗂️ **사용자 자료 fallback** | 공통 NCS 자료가 없는 분야는 업로드 교재를 프로젝트 근거로 사용 |
-| 🔁 **자연어 재생성** | "난이도를 낮춰줘", "실습을 하나 더" 처럼 말로 수정 |
-| 🎨 **PPT 템플릿 적용** | 보유한 `.pptx`의 마스터·레이아웃을 적용해 강의자료 생성 |
-| 📥 **DOCX / PPTX 다운로드** | 완성된 강의 패키지를 문서·슬라이드 파일로 내려받기 |
+`수행준거 0개 · RAG 미적재`는 능력단위가 잘못되었다는 뜻이 아닙니다. 공식 코드와 명칭은 카탈로그에 있지만 LessonPack이 사용할 상세 수행준거가 아직 동기화되지 않은 상태입니다.
 
-## 📖 사용 방법
+- 전체 카탈로그: 공식 CSV·API에서 수집한 능력단위 식별 정보
+- 상세 NCS 데이터: 수행준거와 학습모듈이 구조화·임베딩된 범위
+- 프로젝트 자료: 사용자가 해당 과정에 직접 업로드한 교재와 기관 자료
 
-처음 사용한다면 아래 순서를 따라 해 보세요.
+상세 RAG가 없는 분야도 사용자가 수행준거를 입력하고 관련 교재를 업로드하면 생성할 수 있습니다. 다만 이 경우 공식 수행준거 검증 완료 상태와 구분해 표시합니다.
 
-1. **접속** — [서비스 페이지](https://lessonpack-ai.lovable.app/)에 들어갑니다.
-2. **과정 정보 입력** — NCS 기반 또는 일반 강의를 선택하고 과정명, 차시명, 학습 대상, 훈련 계획, 학습목표와 근거 검색어를 입력합니다. NCS 기반 강의라면 능력단위와 대상 수행준거도 선택합니다.
-3. **템플릿·교재 업로드 및 자동 생성** — PPT 디자인을 적용하려면 `.pptx` 템플릿을 선택하고, Markdown · TXT · PDF 교재를 올려 강의 패키지를 생성합니다.
-4. **결과 확인·수정** — 생성 결과를 확인하고, 필요한 경우 바꾸고 싶은 점을 자연어로 입력합니다.
-5. **다운로드** — 완성된 강의 패키지를 **DOCX** 또는 **PPTX**로 내려받습니다.
+### 준비할 정보
 
-> 학습목표와 검색어를 구체적으로 적을수록 생성되는 교안과 평가 문항이 더 정확해집니다. NCS 기반 강의는 이번 차시에서 실제로 다룰 수행준거만 선택합니다.
->
-> 공통 NCS 자료에 해당 분야가 없더라도 업로드한 교재·기관 자료가 있으면 계속 생성할 수 있습니다. 이 경우 화면에 **업로드 근거**로 표시되며, NCS 세부 기준은 사용자 입력과 업로드 자료의 범위를 넘어 임의로 확장하지 않습니다.
+- 과정명, 차시명, 대상자 수준과 선수지식
+- 총 훈련 시간, 총 차시, 이론·실습 비율
+- 이번 차시의 학습목표
+- NCS 강의인 경우 능력단위와 대상 수행준거
+- 근거 교재: PDF·Markdown·TXT, 파일당 최대 20MB
+- 선택 사항: PowerPoint 템플릿, 최대 25MB
 
-## 🎒 미리 준비하면 좋은 것
+> LessonPack AI는 강의 초안을 만드는 도구입니다. 실제 교육과 평가에 사용하기 전에 내용, 난이도, 저작권과 NCS 적합성을 확인해야 합니다.
 
-- 강의 **과정명 · 차시명**
-- 학습자 수준 또는 선수 지식
-- 총 훈련시간, 총 차시, 이론·실습 비율
-- 이번 차시의 **학습목표**
-- NCS 기반 강의인 경우 관련 **NCS 능력단위와 대상 수행준거**
-- 교안·실습·평가에서 다룰 핵심 주제별 근거 검색어 1~5개
-- 수업 근거로 쓸 교재 자료 (Markdown · TXT · PDF, 파일당 최대 20MB)
-- 선택 사항: 기관·과정용 PowerPoint 템플릿 (`.pptx`, 최대 25MB)
+## 개발자 안내
 
-> 일반 사용자는 API 키, Supabase, Langfuse 같은 개발 설정을 **직접 다루지 않아도 됩니다.**
+백엔드와 프론트엔드는 서로 다른 Git 저장소입니다.
 
-## 🌱 기대 효과
-
-- ⏱️ **준비 시간 단축** — 교안·실습·평가를 처음부터 따로 만들 필요 없이 초안을 한 번에 확보
-- 🎯 **일관된 구성** — 실습과 평가가 같은 학습목표에 맞춰 정렬
-- 📚 **근거 기반** — 교재와 NCS에서 찾은 문단을 근거로 제시해 신뢰도 향상
-
-<br/>
-
-# 🛠️ 개발자 가이드
-
-> 프로젝트를 로컬에서 실행하거나 구조를 이해하려는 개발자를 위한 안내입니다. 세부 구현보다 **전체 구성과 시작 방법** 위주로 정리했으며, 자세한 내용은 [`docs/`](docs/) 문서를 참고하세요.
-
-## 🧩 시스템 구성
-
-LessonPack AI는 **FastAPI 백엔드**를 중심으로, 교재를 검색(RAG)하고 LLM으로 강의 패키지를 생성해 문서 파일로 내보냅니다. 운영 UI는 Lovable로 배포된 웹 프론트가 담당합니다.
+| 저장소 | 역할 |
+| --- | --- |
+| [Job_AI_Agent](https://github.com/RyuGernwoo/Job_AI_Agent) | FastAPI, RAG, LLM 생성, Supabase, 내보내기, CI/CD |
+| [lessonpack-ai](https://github.com/RyuGernwoo/lessonpack-ai) | Lovable 기반 React·TypeScript 웹 UI |
 
 ```mermaid
-flowchart TD
-    User([👤 사용자])
-
-    subgraph Client["💻 프론트엔드"]
-        Web[Lovable Web UI]
-    end
-
-    subgraph Backend["⚙️ 백엔드 · FastAPI"]
-        API[프로젝트 · 자료 · 생성 API]
-        RAG[🔎 RAG 근거 검색]
-        Agent[🤖 강의 패키지 생성]
-        Export[📄 DOCX / PPTX 내보내기]
-    end
-
-    subgraph Data["🗄️ 데이터 · LLM"]
-        DB[(Supabase<br/>Postgres + pgvector)]
-        LLM[[LiteLLM<br/>OpenAI · Gemini fallback]]
-    end
-
-    Obs[[📈 Langfuse 관측성]]
-
-    User --> Web --> API
-    API --> RAG --> DB
-    RAG --> Agent
-    Agent --> LLM
-    Agent --> Export --> User
-    Agent -.-> Obs
-    API -.-> Obs
+flowchart LR
+    U["사용자"] --> W["React 웹 UI"]
+    W --> A["FastAPI"]
+    A --> R["Supabase RAG"]
+    R --> L["LiteLLM"]
+    L --> O["OpenAI primary<br/>Gemini fallback"]
+    A --> E["DOCX / PPTX"]
+    L -. trace .-> F["Langfuse"]
 ```
 
-**동작 흐름**: `과정·다중 검색어 저장 → 교재 업로드·chunking → 다중 query RAG 검색·근거 병합 → LLM 강의 패키지 자동 생성 → 자연어 재생성 → DOCX/PPTX 내보내기 → Langfuse 관측`
+### 백엔드 빠른 실행
 
-검색은 현재 프로젝트의 업로드 자료를 먼저 사용하고 공통 baseline 자료로 남은 결과를 보충합니다. 의미 검색 결과가 없거나 공통 NCS 분야가 비어 있으면 실제 업로드 chunk를 문서별로 선택하는 fallback을 적용하며, 관련도가 낮은 baseline 결과는 생성 근거에서 제외합니다.
-
-## 🧰 기술 스택
-
-<p>
-<img src="https://img.shields.io/badge/Python_3.11-3776AB?logo=python&logoColor=white" />
-<img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" />
-<img src="https://img.shields.io/badge/Pydantic-E92063?logo=pydantic&logoColor=white" />
-<img src="https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black" />
-<img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" />
-<img src="https://img.shields.io/badge/LiteLLM-6E56CF?logo=litellm&logoColor=white" />
-<img src="https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white" />
-<img src="https://img.shields.io/badge/Gemini-8E75B2?logo=googlegemini&logoColor=white" />
-<img src="https://img.shields.io/badge/Langfuse-0A0A0A?logo=langfuse&logoColor=white" />
-<img src="https://img.shields.io/badge/Supabase-3FCF8E?logo=supabase&logoColor=white" />
-<img src="https://img.shields.io/badge/pgvector-4169E1?logo=postgresql&logoColor=white" />
-<img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" />
-<img src="https://img.shields.io/badge/GitHub_Actions-2088FF?logo=githubactions&logoColor=white" />
-<img src="https://img.shields.io/badge/GCP_Compute_Engine-4285F4?logo=googlecloud&logoColor=white" />
-</p>
-
-| 구분 | 사용 기술 |
-|:---|:---|
-| **API** | FastAPI, Pydantic |
-| **UI** | Lovable (React + TypeScript) |
-| **LLMOps** | LiteLLM, OpenAI (primary), Gemini (fallback), Langfuse |
-| **Vector Store** | Supabase Postgres + pgvector |
-| **Export** | python-docx, python-pptx |
-| **배포 · CI/CD** | Docker, Docker Compose, GCE, GitHub Actions, GHCR |
-| **테스트** | pytest / unittest, retrieval·generation 검증 스크립트 |
-
-## 🐳 빠른 실행 (Docker)
-
-**요구 사항**: Python 3.11+, Docker (권장). 실데이터 실행에는 Supabase, OpenAI / Gemini, Langfuse 키가 필요합니다. 전체 목록은 [`.env.example`](.env.example)을 참고하세요.
+요구 사항은 Python 3.11 이상과 Docker입니다. 실제 LLM·RAG 실행에는 `.env.example`에 정리된 외부 서비스 키가 필요합니다.
 
 ```powershell
-# 1) 환경변수 준비 (.env에 실제 값 입력, secret은 커밋 금지)
+git clone https://github.com/RyuGernwoo/Job_AI_Agent.git
+Set-Location Job_AI_Agent
 Copy-Item .env.example .env
-
-# 2) Docker로 실행
 docker compose up -d --build
-
-# 3) 배포 상태 확인
-python scripts\check_deployment.py http://localhost:8000
+python scripts\check_deployment.py http://127.0.0.1:8000
 ```
 
-확인 주소 — Swagger UI `http://127.0.0.1:8000/docs` · 헬스 체크 `http://127.0.0.1:8000/health`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- 기본 상태: `http://127.0.0.1:8000/health`
+- RAG 상태: `http://127.0.0.1:8000/health/rag`
+- PPT 템플릿 저장소 상태: `http://127.0.0.1:8000/health/ppt-template`
 
-> 로컬에서 실제 API 없이 흐름만 확인하려면 `config.yaml`의 `llm.provider`를 `mock`으로 설정하세요.
+로컬에서 외부 API 없이 테스트하려면 `config.example.yaml`을 복사하고 `llm.provider: mock`, `vector_store.provider: memory`를 사용합니다. 운영 환경은 `.env`에서 Supabase와 외부 임베딩 설정을 명시합니다.
 
-## 🔌 주요 API
-
-| Method | Endpoint | 설명 |
-|:---|:---|:---|
-| `GET` | `/health` · `/health/rag` · `/health/ppt-template` | 서비스 · RAG · PPT 템플릿 저장소 상태 확인 |
-| `GET` | `/api/ncs/catalog/search` · `/api/ncs/catalog/{unit_code}` | NCS 능력단위 검색 및 수행준거 조회 |
-| `POST` | `/api/projects` | 과정 / 차시 프로젝트 생성 |
-| `POST` | `/api/projects/{id}/materials` | 교재 업로드 및 chunk 생성 |
-| `POST/GET/PUT/DELETE` | `/api/projects/{id}/ppt-template` | PPTX 템플릿 업로드·조회·레이아웃 설정·삭제 |
-| `POST` | `/api/projects/{id}/rag/retrieve` | 프로젝트 우선 · baseline 보조 근거 검색 |
-| `POST` | `/api/projects/{id}/rag/generate` | 단일·다중 query 검색과 패키지 생성 또는 기존 retrieval run 재사용 |
-| `POST` | `/api/packages/{id}/regenerate` | 자연어 지시 기반 새 패키지 생성 |
-| `GET` | `/api/projects/{id}/ncs-coverage` | 최신 NCS 패키지의 수행준거 커버리지 조회 |
-| `GET` | `/api/packages/{id}/export.docx` · `export.pptx` | 산출물 다운로드 |
-
-> 전체 엔드포인트는 [Swagger UI](https://34.47.92.210.nip.io/docs)에서 확인할 수 있습니다.
-
-운영 UI는 프로젝트 입력의 `retrieval_queries`를 교재 업로드 직후 `/rag/generate`에 전달합니다. 서버는 query별 검색 결과를 하나의 retrieval run으로 병합하고 중복 chunk를 제거합니다. `/rag/retrieve`와 retrieval run 기반 생성은 API 호환성과 진단 용도로 유지합니다.
-
-운영 Supabase에는 API 배포 전 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql)부터 [`009_ppt_template_storage.sql`](supabase/migrations/009_ppt_template_storage.sql)까지 순서대로 적용해야 합니다. NCS catalog는 한국산업인력공단의 공식 전체 능력단위 CSV와 기존 상세 RAG 데이터를 병합해 적재합니다.
+### 프론트엔드 실행
 
 ```powershell
-python scripts\prepare_ncs_catalog.py `
-  --official-csv "C:\path\to\한국산업인력공단_국가직무능력표준 정보_20251231.csv"
-python scripts\prepare_ncs_catalog.py `
-  --official-csv "C:\path\to\한국산업인력공단_국가직무능력표준 정보_20251231.csv" `
-  --upload
+git clone https://github.com/RyuGernwoo/lessonpack-ai.git
+Set-Location lessonpack-ai
+Copy-Item .env.example .env.local
+npm ci
+npm run dev
 ```
 
-공공데이터포털 서비스 키를 설정하고 `LESSONPACK_NCS_API_ENABLED=true`로 활성화한 뒤 공식 능력단위 상세정보와 학습모듈 내용을 증분 동기화할 수 있습니다. `detail` 모드는 `catalog` 원본에 저장된 공식 식별자를 사용하므로 최초 실행은 `all` 또는 `catalog`로 시작합니다.
+프론트엔드에는 공개 가능한 API 주소와 업로드 제한만 둡니다. LLM, Supabase service role, Langfuse secret은 브라우저 환경변수에 넣지 않습니다.
+
+### 핵심 API
+
+| Method | Endpoint | 역할 |
+| --- | --- | --- |
+| `GET` | `/health`, `/health/rag`, `/health/ppt-template` | 런타임 준비 상태 |
+| `GET` | `/api/ncs/catalog/search` | 능력단위 코드·명칭 검색 |
+| `GET` | `/api/ncs/catalog/{unit_code}` | 능력단위와 적재된 수행준거 조회 |
+| `POST` | `/api/projects` | 강의 프로젝트 생성 |
+| `POST` | `/api/projects/{id}/materials` | 교재 업로드와 chunk 생성 |
+| `POST/GET/PUT/DELETE` | `/api/projects/{id}/ppt-template` | PPT 템플릿 관리 |
+| `POST` | `/api/projects/{id}/rag/generate` | 다중 query 검색과 패키지 생성 |
+| `POST` | `/api/packages/{id}/regenerate` | 자연어 수정 지시 기반 재생성 |
+| `GET` | `/api/projects/{id}/ncs-coverage` | 수행준거 연결 상태 |
+| `GET` | `/api/packages/{id}/export.docx`, `export.pptx` | 결과 다운로드 |
+
+### NCS 공식 API 동기화
+
+운영 Supabase에는 `supabase/migrations/001`부터 `009`까지 순서대로 적용합니다. 공식 API 동기화는 카탈로그와 상세 백필을 분리하며, API 할당량 때문에 상세 수행준거 적재는 여러 번의 재개 실행이 필요할 수 있습니다.
 
 ```powershell
 python scripts\sync_ncs_official_api.py --mode all --resume --embed
-python scripts\verify_ncs_official_sync.py `
-  --query "응용SW엔지니어링 요구사항 확인 수행준거"
+python scripts\verify_ncs_official_sync.py --query "프로그래밍 언어 활용 수행준거"
 ```
 
-## 📁 프로젝트 구조
+`catalog` 실행은 코드·명칭 검색 범위를 갱신하고, `detail` 실행은 수행준거와 RAG chunk를 보완합니다. 동기화 운영 기준은 [NCS 공식 API 문서](docs/02_implementation-readiness/12_NCS_공식_API_RAG_자동_동기화_기획서.md)를 참고합니다.
+
+### 검증
+
+```powershell
+python -m pytest -q
+python -m compileall -q src tests scripts
+python scripts\run_mvp_verification.py --use-mock-llm --output-dir outputs\eval
+```
+
+프론트엔드는 별도 저장소에서 다음을 실행합니다.
+
+```powershell
+npm run lint
+npm run build
+```
+
+### 저장소 구조
 
 ```text
-src/            FastAPI 백엔드 (API · RAG · 생성 · export)
-lessonpack-ai/  Lovable 기반 웹 프론트엔드 (React + TS)
-data/           최소 MVP 재현 데이터와 평가용 gold set
-scripts/        데이터 적재 · 검증 · 배포 확인 스크립트
-docs/           기획 · 구현 · 검증 문서
-tests/          자동 테스트
-.github/workflows/  CI/CD workflow
+Job_AI_Agent/
+├─ src/                    FastAPI와 도메인 서비스
+├─ scripts/                데이터 준비·동기화·검증 도구
+├─ supabase/migrations/    데이터베이스와 Storage 변경 이력
+├─ tests/                  백엔드 자동 테스트
+├─ data/gold/              소규모 평가 기준 데이터
+├─ docs/                   기획·구현·운영·검증 문서
+├─ .github/workflows/      CI, CD, NCS 동기화
+└─ README.md
 ```
 
-## 🔄 CI/CD
+원천 데이터, 전처리 결과, 실행 산출물과 별도 프론트엔드 체크아웃은 Git에 포함하지 않습니다.
 
-GitHub Actions에서 테스트와 배포를 분리해 운영합니다.
+### CI/CD
 
-| Workflow | 실행 시점 | 역할 |
-|:---|:---|:---|
-| `CI` | push · PR · 수동 | Python compile, 테스트, Docker build 검증 |
-| `CD` | main CI 성공 후 · 수동 | GHCR 이미지 빌드/푸시, GCE 배포, health check |
-| `NCS Official API Sync` | 정기 · 수동 | 공식 NCS 변경 감지, 상세정보·학습모듈 증분 임베딩, Supabase/RAG 검증 |
+| Workflow | 역할 |
+| --- | --- |
+| `CI` | 정적 검사, 테스트, Docker 이미지 빌드 검증 |
+| `CD` | GHCR 이미지 생성, GCE 배포, 상태 확인 |
+| `NCS Official API Sync` | 카탈로그·상세 수행준거·학습모듈 증분 동기화와 검증 |
 
-## 🔐 보안 주의
+## 문서
 
-> - `.env`에는 실제 API 키와 service role 키가 들어갑니다. **Git에 커밋하지 마세요.**
-> - Supabase `SERVICE_ROLE_KEY`는 **서버 전용 키**이며, 브라우저·프론트엔드·공개 로그에 노출하면 안 됩니다.
+- [문서 전체 안내](docs/README.md)
+- [MVP 통합 기획서](docs/00_project-brief/01_MVP_통합_기획서.md)
+- [구현명세서](docs/02_implementation-readiness/01_구현명세서.md)
+- [RAG 구축·연동 기획서](docs/02_implementation-readiness/07_RAG_구축_연동_기획서.md)
+- [NCS 전체 카탈로그 운영 기준](docs/02_implementation-readiness/11_NCS_전체_카탈로그_검색_구축.md)
+- [NCS 공식 API 동기화](docs/02_implementation-readiness/12_NCS_공식_API_RAG_자동_동기화_기획서.md)
+- [PPT 템플릿 생성](docs/02_implementation-readiness/13_PPT_템플릿_기반_강의자료_생성_기획서.md)
+- [MVP 품질 평가](docs/04_validation/01_MVP_품질_평가_결과.md)
 
----
+## 라이선스와 데이터
 
-## 📚 참고 문서
-
-- 📄 [문서 안내](docs/README.md)
-- 🧭 [MVP 통합 기획서](docs/00_project-brief/01_MVP_통합_기획서.md)
-- 🏗️ [구현명세서](docs/02_implementation-readiness/01_구현명세서.md)
-- 🔎 [RAG 구축 및 연동 기획서](docs/02_implementation-readiness/07_RAG_구축_연동_기획서.md)
-- 🗂️ [NCS 확장 데이터셋 처리 및 RAG 검증 결과](docs/02_implementation-readiness/09_NCS_확장_데이터셋_처리_검증_결과.md)
-- [NCS 특화 기능 보완 기획서 및 구현 현황](docs/02_implementation-readiness/10_NCS_특화_기능_보완_기획서.md)
-- [NCS 전체 카탈로그 검색 구축 및 운영 기준](docs/02_implementation-readiness/11_NCS_전체_카탈로그_검색_구축.md)
-- [NCS 공식 API 기반 RAG 자동 동기화 기획서](docs/02_implementation-readiness/12_NCS_공식_API_RAG_자동_동기화_기획서.md)
-- ✅ [MVP 품질 평가 결과](docs/04_validation/01_MVP_품질_평가_결과.md)
-- 🚀 [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
-
-## ✍️ 작성자
-
-| 이름 | 역할 | GitHub |
-|:---|:---|:---|
-| RyuGernwoo | FastAPI, RAG, LLMOps, Export, CI/CD, GCE Infra | [@RyuGernwoo](https://github.com/RyuGernwoo) |
+외부 교재·NCS 원문·학습모듈은 각 제공처의 이용 조건을 따릅니다. 저장소에는 재현에 필요한 소규모 평가 fixture만 포함하며, 원천 자료와 운영 데이터는 별도로 관리합니다.

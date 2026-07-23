@@ -20,12 +20,23 @@
 | catalog·detail·module 정기 실행과 검증 artifact | 코드 완료 | `.github/workflows/ncs-sync.yml` |
 | fixture, KSA 병합, 멱등성, 재개·삭제 검증 | 완료 | `tests/test_ncs_official_api.py`, `tests/test_ncs_official_sync.py` |
 | 공식 `dataInfo`·`data/row` 응답 및 상세 API 필수 파라미터 반영 | 완료 | API parser와 동적 detail target |
-| 운영 Supabase migration 적용 | 대기 | Supabase SQL Editor에서 `008` 적용 필요 |
-| 실제 API dry-run·전체 백필 | 대기 | `DATA_GO_KR_SERVICE_KEY` 발급·등록 필요 |
+| 운영 Supabase migration 적용 | 운영 반영 | `008_ncs_official_api_sync.sql` 기준 |
+| 공식 API 연결·catalog 동기화 | 운영 반영 | 전체 코드·명칭 검색에 사용 |
+| detail 수행준거·학습모듈 백필 | 진행 중 | API 할당량 안에서 반복 `--resume` 실행 |
 
-현재 로컬 `.env`에는 공공데이터포털 service key가 없어 실제 공식 API 호출은 수행하지 않았다. 코드는 외부 키 없이 fixture 기반으로 검증했으며, 운영 완료 판정은 migration 적용과 실제 sync 검증 후에 내린다.
+공공데이터포털 service key와 운영 Supabase 연결은 완료되었지만, API 연결 자체가 전체 수행준거 적재 완료를 의미하지는 않는다. `catalog` 작업은 능력단위 코드·명칭을 갱신하고 `detail` 작업은 능력단위요소·수행준거·KSA·평가지침과 RAG chunk를 보완한다. 현재 검색 결과에서 다수 항목이 `수행준거 0개`로 보이는 것은 상세 백필이 진행 중인 상태와 일치한다.
 
-정적·fixture 검증 결과는 전체 테스트 `145 passed, 3 subtests passed`이며, 동기화 전용 테스트에는 공식 `dataInfo/data/row` 파싱, 상세 필수 키 전달, catalog 이후 detail target 자동 생성, 멱등성, 체크포인트 재개와 삭제 source 정리가 포함된다.
+현재 자동 테스트 기준은 전체 `154 passed, 3 subtests passed`다. 동기화 전용 테스트에는 공식 `dataInfo/data/row` 파싱, 상세 필수 키 전달, catalog 이후 detail target 자동 생성, 멱등성, 체크포인트 재개와 삭제 source 정리가 포함된다. 외부 API와 Supabase의 최신 수량은 테스트 수치가 아니라 `ncs-sync-report.json`과 `verify_ncs_official_sync.py` 결과로 판정한다.
+
+### 0.1 운영 상태 판정
+
+| 관찰 결과 | 의미 | 조치 |
+| --- | --- | --- |
+| 코드·명칭은 검색되고 수행준거가 0개 | catalog 완료, detail 미완료 | `detail --resume --embed` 반복 |
+| 최신 sync가 `partial` | 요청 상한 또는 작업 범위 때문에 중단 지점 저장 | 동일 옵션으로 재개 |
+| `criteria_upsert_count=0` | 상세 응답·target·파싱 경로 확인 필요 | sync artifact와 실패 source 확인 |
+| criteria는 있으나 RAG hit가 없음 | chunk 또는 embedding 적재 불완전 | `chunk_upsert_count`와 검증 query 확인 |
+| 특정 단위만 긴급 보완 | 전체 백필을 기다릴 필요 없음 | `--unit-code <code>` 제한 실행 |
 
 ## 1. 목적
 
