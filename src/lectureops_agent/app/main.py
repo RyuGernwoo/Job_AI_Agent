@@ -4,6 +4,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Protocol
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,6 +52,12 @@ from lectureops_agent.services.llm_provider import (
     create_llm_provider_from_env,
     llm_trace_context,
 )
+from lectureops_agent.services.ncs_official_api import NCSOfficialAPIClient
+from lectureops_agent.services.ncs_sync_service import (
+    NCSOfficialSyncOptions,
+    NCSOfficialSyncService,
+    SupabaseNCSOfficialSyncStore,
+)
 from lectureops_agent.services.parser_service import decode_text_material
 from lectureops_agent.services.ppt_template_service import (
     PPTTemplateStore,
@@ -68,6 +75,7 @@ from lectureops_agent.services.rag_service import (
     retrieval_response,
 )
 from lectureops_agent.services.vector_store import (
+    SupabaseVectorStore,
     VectorStore,
     create_vector_store_from_config,
     create_vector_store_from_env,
@@ -90,12 +98,20 @@ DEFAULT_CORS_ALLOW_ORIGINS = (
 )
 
 
+class NCSProjectDetailSyncer(Protocol):
+    """Synchronize detailed official records for a selected NCS unit."""
+
+    def sync(self, options: NCSOfficialSyncOptions) -> object:
+        ...
+
+
 def create_app(
     vector_store: VectorStore | None = None,
     llm_provider: LLMProvider | None = None,
     app_config: LessonPackConfig | None = None,
     rag_repository: RAGRepository | None = None,
     ppt_template_store: PPTTemplateStore | None = None,
+    ncs_project_detail_syncer: NCSProjectDetailSyncer | None = None,
 ) -> FastAPI:
     load_env_file()
     explicit_app_config = app_config is not None
@@ -147,6 +163,10 @@ def create_app(
         allow_env_override=not explicit_app_config,
     )
     rag_repository = rag_repository or create_rag_repository_for_vector_store(vector_store)
+    ncs_project_detail_syncer = (
+        ncs_project_detail_syncer
+        or _create_runtime_ncs_project_detail_syncer(vector_store)
+    )
     ppt_template_store = (
         ppt_template_store or create_ppt_template_store_for_vector_store(vector_store)
     )
@@ -210,7 +230,15 @@ def create_app(
 
     @app.post("/api/projects", response_model=Project)
     def create_project(payload: ProjectCreate) -> Project:
+        original_payload = payload
         payload = _resolve_verified_ncs_units(payload=payload, repository=rag_repository)
+        _sync_selected_ncs_unit_details(
+            payload=original_payload,
+            syncer=ncs_project_detail_syncer,
+        )
+        # Detail synchronization can populate catalog criteria. Resolve again so
+        # newly ingested official units are persisted with verified status.
+        payload = _resolve_verified_ncs_units(payload=original_payload, repository=rag_repository)
         project = payload.to_project()
         try:
             rag_repository.save_project(project)
@@ -897,10 +925,60 @@ def _resolve_verified_ncs_units(
                     "classification": catalog_unit.classification,
                     "catalog_version": catalog_unit.catalog_version,
                     "source_status": NCSSourceStatus.VERIFIED,
+                    "target_criteria": (
+                        unit.target_criteria
+                        or [criterion.text for criterion in catalog_unit.criteria]
+                    ),
                 }
             )
         )
     return payload.model_copy(update={"ncs_units": resolved_units})
+
+
+def _sync_selected_ncs_unit_details(
+    *,
+    payload: ProjectCreate,
+    syncer: NCSProjectDetailSyncer | None,
+) -> None:
+    """Populate RAG evidence for catalog units selected during project creation."""
+    if payload.course_type != CourseType.NCS or syncer is None:
+        return
+
+    for unit in payload.ncs_units:
+        if unit.source_status != NCSSourceStatus.VERIFIED:
+            continue
+        try:
+            syncer.sync(
+                NCSOfficialSyncOptions(
+                    mode="detail",
+                    unit_code=unit.unit_code,
+                    page_size=_runtime_int("LESSONPACK_NCS_SYNC_PAGE_SIZE", 100),
+                    max_requests=_runtime_int(
+                        "LESSONPACK_NCS_PROJECT_SYNC_MAX_REQUESTS", 50
+                    ),
+                    embed=True,
+                    embedding_batch_size=_runtime_int(
+                        "LESSONPACK_NCS_SYNC_EMBEDDING_BATCH_SIZE", 8
+                    ),
+                    max_selected_units=_runtime_int(
+                        "LESSONPACK_NCS_MAX_SELECTED_UNITS", 50
+                    ),
+                )
+            )
+        except RuntimeError as exc:
+            if "Selective NCS RAG unit limit reached" in str(exc):
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            logger.exception("Selected NCS unit detail synchronization failed")
+            raise HTTPException(
+                status_code=503,
+                detail="Selected NCS unit detail synchronization is temporarily unavailable.",
+            ) from exc
+        except Exception as exc:
+            logger.exception("Selected NCS unit detail synchronization failed")
+            raise HTTPException(
+                status_code=503,
+                detail="Selected NCS unit detail synchronization is temporarily unavailable.",
+            ) from exc
 
 
 def _validate_ncs_generation_evidence(
@@ -987,6 +1065,41 @@ def _create_runtime_vector_store(
     return create_vector_store_from_env()
 
 
+def _create_runtime_ncs_project_detail_syncer(
+    vector_store: VectorStore,
+) -> NCSOfficialSyncService | None:
+    """Create the optional selected-unit sync service for the production API."""
+    if not _env_flag("LESSONPACK_NCS_PROJECT_DETAIL_SYNC_ENABLED", default=True):
+        return None
+    if not _env_flag("LESSONPACK_NCS_API_ENABLED", default=False):
+        return None
+    if not isinstance(vector_store, SupabaseVectorStore):
+        return None
+
+    service_key = os.getenv("DATA_GO_KR_SERVICE_KEY", "").strip()
+    if not service_key:
+        logger.warning(
+            "NCS project detail synchronization is disabled because DATA_GO_KR_SERVICE_KEY is unset"
+        )
+        return None
+
+    return NCSOfficialSyncService(
+        api_client=NCSOfficialAPIClient(
+            service_key=service_key,
+            base_url=os.getenv(
+                "LESSONPACK_NCS_API_BASE_URL",
+                "https://apis.data.go.kr/B490007/ncsInfo",
+            ),
+            requests_per_second=_runtime_float(
+                "LESSONPACK_NCS_SYNC_REQUESTS_PER_SECOND", 2.0
+            ),
+        ),
+        store=SupabaseNCSOfficialSyncStore(client=vector_store.client),
+        vector_store=vector_store,
+        project_id=os.getenv("LESSONPACK_NCS_SYNC_PROJECT_ID", "mvp-dataset"),
+    )
+
+
 def _configure_cors(app: FastAPI) -> None:
     allow_origins = _cors_allow_origins_from_env()
     if not allow_origins:
@@ -1054,6 +1167,16 @@ def _runtime_int(name: str, default: int) -> int:
     if value is None or not value.strip():
         return default
     parsed = int(value)
+    if parsed <= 0:
+        raise ValueError(f"{name} must be greater than 0")
+    return parsed
+
+
+def _runtime_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    parsed = float(value)
     if parsed <= 0:
         raise ValueError(f"{name} must be greater than 0")
     return parsed

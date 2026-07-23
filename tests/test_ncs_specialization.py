@@ -34,6 +34,7 @@ from lectureops_agent.services.ncs_catalog_dataset import (
     merge_ncs_catalogs,
     parse_ncs_catalog_markdown,
 )
+from lectureops_agent.services.ncs_sync_service import NCSOfficialSyncOptions
 from lectureops_agent.services.rag_repository import InMemoryRAGRepository
 from lectureops_agent.services.rag_service import retrieve_evidence
 from lectureops_agent.services.vector_store import InMemoryVectorStore
@@ -127,6 +128,32 @@ def ncs_project() -> ProjectCreate:
         ],
         retrieval_queries=["function input return"],
     )
+
+
+class RecordingNCSProjectDetailSyncer:
+    def __init__(self, repository: InMemoryRAGRepository) -> None:
+        self.repository = repository
+        self.options: list[NCSOfficialSyncOptions] = []
+
+    def sync(self, options: NCSOfficialSyncOptions) -> None:
+        self.options.append(options)
+        assert options.unit_code is not None
+        unit = self.repository.get_ncs_catalog_unit(options.unit_code)
+        assert unit is not None
+        criterion = NCSCatalogCriterion(
+            criterion_code=f"{options.unit_code}.1.1",
+            element_code=f"{options.unit_code}.1",
+            element_name="Official element",
+            text="Official criterion",
+        )
+        self.repository.ncs_catalog[options.unit_code.casefold()] = unit.model_copy(
+            update={"criteria": [criterion]}
+        )
+
+
+class FailingNCSProjectDetailSyncer:
+    def sync(self, options: NCSOfficialSyncOptions) -> None:
+        raise RuntimeError("NCS API unavailable")
 
 
 class NCSSpecializationTests(unittest.TestCase):
@@ -415,6 +442,74 @@ class NCSSpecializationTests(unittest.TestCase):
             resolved["target_criteria"],
             ["함수의 입력과 반환값을 활용할 수 있다."],
         )
+
+    def test_project_creation_syncs_selected_official_ncs_unit_before_persisting(self):
+        catalog_unit = NCSCatalogUnit(
+            unit_code="NCS-001",
+            unit_name="Official programming",
+            catalog_version="25v1",
+            criteria=[],
+        )
+        repository = InMemoryRAGRepository(ncs_catalog=[catalog_unit])
+        syncer = RecordingNCSProjectDetailSyncer(repository)
+        with patch.dict(
+            os.environ,
+            {"LESSONPACK_ENV_FILE": str(ROOT / "missing-test.env")},
+            clear=True,
+        ):
+            client = TestClient(
+                create_app(
+                    vector_store=InMemoryVectorStore(),
+                    rag_repository=repository,
+                    ncs_project_detail_syncer=syncer,
+                )
+            )
+
+        payload = ncs_project().model_dump(mode="json")
+        payload["ncs_units"][0].update(
+            {
+                "unit_name": "Selected catalog unit",
+                "target_criteria": [],
+                "source_status": "verified",
+            }
+        )
+        created = client.post("/api/projects", json=payload)
+
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(len(syncer.options), 1)
+        self.assertEqual(syncer.options[0].mode, "detail")
+        self.assertEqual(syncer.options[0].unit_code, "NCS-001")
+        self.assertTrue(syncer.options[0].embed)
+        resolved = created.json()["ncs_units"][0]
+        self.assertEqual(resolved["source_status"], "verified")
+        self.assertEqual(resolved["target_criteria"], ["Official criterion"])
+
+    def test_project_creation_does_not_persist_when_selected_ncs_sync_fails(self):
+        catalog_unit = NCSCatalogUnit(
+            unit_code="NCS-001",
+            unit_name="Official programming",
+            criteria=[],
+        )
+        repository = InMemoryRAGRepository(ncs_catalog=[catalog_unit])
+        with patch.dict(
+            os.environ,
+            {"LESSONPACK_ENV_FILE": str(ROOT / "missing-test.env")},
+            clear=True,
+        ):
+            client = TestClient(
+                create_app(
+                    vector_store=InMemoryVectorStore(),
+                    rag_repository=repository,
+                    ncs_project_detail_syncer=FailingNCSProjectDetailSyncer(),
+                )
+            )
+
+        payload = ncs_project().model_dump(mode="json")
+        payload["ncs_units"][0]["source_status"] = "verified"
+        failed = client.post("/api/projects", json=payload)
+
+        self.assertEqual(failed.status_code, 503)
+        self.assertEqual(repository.projects, {})
 
     def test_catalog_parser_extracts_units_and_criteria(self):
         markdown = """---

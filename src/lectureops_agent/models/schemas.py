@@ -186,7 +186,10 @@ class ProjectCreate(BaseModel):
                 if key in unit_codes:
                     raise ValueError("ncs unit codes must be unique")
                 unit_codes.add(key)
-                if not unit.target_criteria:
+                if (
+                    not unit.target_criteria
+                    and unit.source_status != NCSSourceStatus.VERIFIED
+                ):
                     raise ValueError(
                         f"NCS unit {unit.unit_code} requires at least one target criterion"
                     )
