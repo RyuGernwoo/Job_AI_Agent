@@ -224,7 +224,7 @@ python scripts\verify_ncs_official_sync.py `
 ```text
 src/            FastAPI 백엔드 (API · RAG · 생성 · export)
 lessonpack-ai/  Lovable 기반 웹 프론트엔드 (React + TS)
-data/           MVP·NCS 확장 데이터셋 (원본 · processed chunk · gold set)
+data/           최소 MVP 재현 데이터와 평가용 gold set
 scripts/        데이터 적재 · 검증 · 배포 확인 스크립트
 docs/           기획 · 구현 · 검증 문서
 tests/          자동 테스트

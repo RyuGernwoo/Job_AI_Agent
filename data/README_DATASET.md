@@ -16,20 +16,22 @@ MVP 데이터셋은 직업훈련 강의 운영 보조 AI가 다음 흐름을 실
 
 ```text
 data/
-  NCS_raw/         # 분야 확장용 NCS PDF/XLS 원본, Git 미포함
-  raw/             # 로컬 원천 데이터, Git 미포함
-  processed/       # 전처리 산출물, Git 미포함, 재생성 가능
+  raw/             # MVP 재생성에 필요한 선별 원문만 유지, Git 미포함
+  processed/       # 기본 MVP 43개 chunk와 manifest, Git 미포함
   gold/            # 작은 합성 평가 fixture, Git 포함
+  main_image.png
   README_DATASET.md
 ```
+
+2026-07-23 로컬 정리에서 Supabase 적재가 끝난 `NCS_raw/`, NCS 확장 Markdown·chunk·catalog 사본, 중복 NCS PDF/XLS, 전체 Python/Pandas 문서 복사본을 제거했다. 현재 로컬 데이터는 MVP 검증과 43개 기본 chunk 재생성에 필요한 최소 자료만 보존한다.
 
 ### Git 추적 정책
 
 | 경로 | Git 포함 | 이유 |
 | --- | --- | --- |
-| `data/raw/` | 아니오 | 원천 PDF/MD/XLS 자료는 용량, 라이선스, 재배포 이슈가 있음 |
-| `data/NCS_raw/` | 아니오 | 분야 확장용 NCS 원본이며 현재 약 2.05GB |
-| `data/processed/` | 아니오 | `scripts/prepare_mvp_dataset.py`로 재생성 가능 |
+| `data/raw/` | 아니오 | 선별 원문은 라이선스·재배포 이슈가 있어 로컬에만 유지 |
+| `data/NCS_raw/` | 아니오 | 2026-07-23 제거. 확장 데이터는 Supabase와 공식 API 동기화로 운영 |
+| `data/processed/` | 아니오 | 기본 MVP 산출물만 유지하며 `scripts/prepare_mvp_dataset.py`로 재생성 가능 |
 | `data/gold/` | 예 | 테스트와 평가 기준 공유에 필요한 작은 합성 fixture |
 | `outputs/` | 아니오 | 검증 리포트, 데모 산출물, export 파일은 실행 결과물 |
 
@@ -57,9 +59,9 @@ data/
 | `ncs-programming-language-application` | NCS 프로그래밍 언어 응용 | NCS 정합성, 실습, 평가 |
 | `ncs-data-structure-use` | NCS 자료구조 활용 | NCS 정합성, 검색 gold, 평가 |
 
-### NCS 분야 확장 데이터셋
+### NCS 분야 확장 데이터셋 운영 실적
 
-2026-07-22 기준 `data/NCS_raw/`의 사업관리, 경영·회계·사무, 금융·보험 자료를 별도 확장 데이터셋으로 처리했습니다.
+2026-07-22에 `data/NCS_raw/`의 사업관리, 경영·회계·사무, 금융·보험 자료를 별도 확장 데이터셋으로 처리했다. 2026-07-23 Supabase 수량과 검색을 재검증한 뒤 대용량 로컬 원본과 중간 산출물은 제거했다.
 
 | 항목 | 값 |
 | --- | ---: |
@@ -72,7 +74,7 @@ data/
 | PDF / XLS chunk | 18,019 / 1,084개 |
 | 변환 오류 | 0건 |
 
-분야별 chunk는 사업관리 4,696개, 경영·회계·사무 6,503개, 금융·보험 7,904개입니다. 기존 43개 MVP chunk와 같은 `mvp-dataset` 기준 범위에 적재되어 서비스 검색 시 함께 사용됩니다.
+분야별 chunk는 사업관리 4,696개, 경영·회계·사무 6,503개, 금융·보험 7,904개다. 기존 43개 MVP chunk와 같은 `mvp-dataset` 범위로 Supabase에 적재되어 서비스 검색 시 함께 사용된다. 로컬 재구축이 필요하면 공식 NCS API 동기화를 우선 사용하고, 원문 PDF/XLS 재처리는 별도 원본을 다시 확보한 경우에만 수행한다.
 
 ## 4. 전처리 산출물
 
@@ -86,11 +88,9 @@ data/
 | `data/gold/retrieval_gold.jsonl` | 검색 평가용 query와 기대 chunk ID |
 | `data/gold/generation_gold.yaml` | 생성 평가용 case와 필수 조건 |
 | `data/gold/human_eval_rubric.yaml` | 사람 평가 루브릭 |
-| `data/raw/ncs_expansion/converted_md/` | NCS_raw PDF/XLS의 Markdown 변환본 |
-| `data/processed/ncs_expansion/chunks.jsonl` | 분야 확장 RAG chunk 19,103개 |
-| `data/processed/ncs_expansion/source_manifest.jsonl` | 원본 해시, 버전, 중복, 변환 상태 |
-| `data/processed/ncs_expansion/dataset_manifest.json` | 확장 데이터 수량과 전처리 계약 |
-| `data/processed/ncs_catalog.jsonl` | XLS 변환 Markdown에서 코드 기준으로 정규화한 능력단위·수행준거 catalog |
+| Supabase `lessonpack_chunks` | 분야 확장 RAG chunk 19,103개와 임베딩의 운영 저장소 |
+| Supabase NCS catalog/criteria 테이블 | 능력단위·수행준거의 운영 저장소 |
+| `lessonpack_ncs_source_records` | 공식 API 증분 동기화 원본과 hash의 운영 저장소 |
 
 ## 5. 적용한 전처리 방법
 
@@ -141,12 +141,19 @@ python scripts\prepare_mvp_dataset.py
 
 성공하면 `data/processed/`와 `data/gold/` 산출물이 갱신됩니다.
 
-확장 NCS 데이터는 데이터 전처리 전용 의존성을 설치한 뒤 재생성합니다.
+`prepare_ncs_raw_dataset.py`는 원문 PDF/XLS를 다시 확보했을 때 사용하는 보존용 전처리 도구다. 현재 로컬에는 `NCS_raw/`가 없으므로 아래 명령은 원문을 별도 복원한 경우에만 실행한다.
 
 ```powershell
 pip install -r requirements-data.txt
 python scripts\prepare_ncs_raw_dataset.py --force
 python scripts\prepare_ncs_catalog.py
+```
+
+일반 운영에서는 공식 API 증분 동기화를 사용한다.
+
+```powershell
+python scripts\sync_ncs_official_api.py --mode all --resume --embed
+python scripts\verify_ncs_official_sync.py
 ```
 
 ## 7. 검증 절차
@@ -227,7 +234,7 @@ python scripts\check_rag_readiness.py --check-schema --query "Python 함수 retu
 
 2026-07-21에 기존 43개 `mvp-dataset` chunk를 위 구성으로 재적재해 `embedding_v2`와 `embedding_version=v2`를 확인했다. 이후 데이터셋을 변경하면 같은 명령으로 해당 chunk를 갱신한다. 기존 `embedding` 값은 호환성 확인 전까지 유지한다.
 
-NCS 확장 데이터 적재와 검증 명령은 다음과 같습니다.
+아래 명령은 2026-07-22 확장 데이터 최초 적재에 사용한 이력이다. 로컬 `ncs_expansion` 산출물을 제거했으므로 같은 파일을 다시 확보하지 않는 한 재실행하지 않는다.
 
 ```powershell
 python scripts\ingest_processed_dataset.py `
@@ -238,7 +245,7 @@ python scripts\verify_ncs_expansion_rag.py --project-id mvp-dataset --top-k 5
 python scripts\prepare_ncs_catalog.py --upload
 ```
 
-2026-07-22 실적은 PDF 18,019개, XLS 1,084개, 합계 19,103개로 로컬 매니페스트와 Supabase 수가 일치했습니다. `004_vector_search_performance.sql`은 PostgREST의 generic prepared plan이 전체 벡터를 순차 비교하지 않도록 검색 함수 내부에서 쿼리별 HNSW custom plan을 생성합니다.
+2026-07-23 재검증에서도 PDF 18,019개, XLS 1,084개, 합계 19,103개가 Supabase에 존재했고 세 분야 대표 검색이 모두 성공했다. 로컬 매니페스트는 정리되었으며 운영 검증은 Supabase count와 검색 smoke test를 기준으로 한다. `004_vector_search_performance.sql`은 PostgREST의 generic prepared plan이 전체 벡터를 순차 비교하지 않도록 검색 함수 내부에서 쿼리별 HNSW custom plan을 생성합니다.
 
 `006_ncs_course_specialization.sql`은 강의 유형, 검색 실행의 NCS 메타데이터, `lessonpack_ncs_catalog`, `lessonpack_ncs_criteria`를 추가합니다. 운영 반영은 migration 적용 후 `prepare_ncs_catalog.py --upload` 순서로 진행하며, service role key는 서버 환경에서만 사용합니다.
 
@@ -287,4 +294,5 @@ python scripts\run_mvp_verification.py --output-dir outputs\eval --demo-case-id 
 - 실제 강사 사용성 평가는 별도 수집이 필요합니다.
 - 원천 자료 라이선스는 문서화되어 있지만 자동 판정하지 않습니다.
 - NCS PDF의 표, 이미지, 복잡한 레이아웃은 Markdown 변환 과정에서 일부 손실될 수 있습니다.
-- 확장 원본의 버전은 2013~2024년 자료가 혼재합니다. chunk에 연도를 보존하지만 법령·지침·통계는 생성 전에 최신성을 별도로 확인해야 합니다.
+- Supabase에 적재된 기존 확장 chunk에는 2013~2024년 자료가 혼재한다. 신규·변경 정보는 공식 API 동기화로 보완하고, 법령·지침·통계는 생성 전에 최신성을 별도로 확인해야 한다.
+- 대용량 확장 원문과 중간 산출물은 로컬에 유지하지 않는다. 원문 기반 재처리가 필요하면 NCS 공식 출처에서 자료를 다시 확보해야 한다.

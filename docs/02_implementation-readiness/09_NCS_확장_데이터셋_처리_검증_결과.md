@@ -4,6 +4,8 @@
 > 대상: `data/NCS_raw/`
 > Supabase 기준 프로젝트: `mvp-dataset`
 
+> 2026-07-23 운영 재검증에서 원격 19,103개 chunk와 세 분야 검색 성공을 확인했다. 이후 대용량 로컬 원본·Markdown·chunk 사본은 제거했으며, 이 문서의 로컬 경로는 처리 당시의 감사 기록이다.
+
 ## 1. 결과 요약
 
 `NCS_raw`의 사업관리, 경영·회계·사무, 금융·보험 자료를 모두 Markdown으로 먼저 변환한 뒤, Markdown만을 입력으로 RAG chunk를 생성했습니다. 외부 OpenAI 임베딩과 Supabase pgvector 적재 및 실제 검색까지 완료했습니다.

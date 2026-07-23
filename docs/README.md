@@ -75,7 +75,7 @@ docs/
 | --- | --- |
 | API | FastAPI MVP 구현 |
 | UI | Lovable 웹 UI 연동 |
-| 데이터셋 | 기존 6개 선별 원천 43개 chunk + NCS 확장 218개 Markdown·19,103개 chunk |
+| 데이터셋 | 로컬은 6개 선별 원천·43개 기본 chunk만 유지, NCS 확장 19,103개 chunk는 Supabase에서 운영 |
 | NCS 특화 | NCS/일반 강의 분기, 공식 능력단위 13,442개 검색, 상세 RAG 능력단위 202개·수행준거 2,452개 병합, 공식 API 증분 동기화 코드 구현 |
 | Vector Store | Supabase Postgres + pgvector, 1536차원 semantic embedding 및 HNSW 검색 적용 |
 | LLMOps | LiteLLM, OpenAI primary, Gemini fallback, Langfuse tracing 적용 |
