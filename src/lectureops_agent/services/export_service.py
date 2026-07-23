@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import io
 import re
 from collections import OrderedDict
 from pathlib import Path
 
 from docx import Document
 from pptx import Presentation
+from pptx.util import Inches, Pt
 
 from lectureops_agent.models.schemas import CourseType, CitationDetail, LessonPackage, NCSAlignment
 
@@ -80,26 +82,52 @@ def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> 
     return output_path
 
 
-def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> Path:
+def export_lesson_package_pptx(
+    *,
+    package: LessonPackage,
+    output_path: Path,
+    template_content: bytes | None = None,
+    layout_mapping: dict[str, int] | None = None,
+) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    presentation = Presentation()
+    presentation = (
+        Presentation(io.BytesIO(template_content))
+        if template_content is not None
+        else Presentation()
+    )
+    if template_content is not None:
+        _remove_source_slides(presentation)
+    mapping = layout_mapping or {}
 
-    cover = presentation.slides.add_slide(presentation.slide_layouts[0])
-    cover.shapes.title.text = package.lesson_plan.title
+    cover = presentation.slides.add_slide(
+        _resolve_layout(presentation, mapping, "cover", fallback_index=0)
+    )
+    _set_slide_title(presentation, cover, package.lesson_plan.title, is_cover=True)
     training_plan = _training_plan_summary(package)
-    cover.placeholders[1].text = "\n".join(
-        value for value in ["LessonPack AI 강의 패키지", training_plan] if value
+    _set_slide_bullets(
+        presentation,
+        cover,
+        [value for value in ["LessonPack AI 강의 패키지", training_plan] if value],
+        prefer_subtitle=True,
     )
 
-    _add_bullet_slide(presentation, "학습 목표", package.lesson_plan.learning_objectives)
+    _add_bullet_slides(
+        presentation,
+        "학습 목표",
+        package.lesson_plan.learning_objectives,
+        semantic_type="objectives",
+        layout_mapping=mapping,
+    )
     if package.course_type == CourseType.GENERAL:
-        _add_bullet_slide(
+        _add_bullet_slides(
             presentation,
             "학습목표-활동-평가 연결",
             [
                 f"{objective} → 교안 → 실습 → 평가"
                 for objective in package.lesson_plan.learning_objectives
             ],
+            semantic_type="objectives",
+            layout_mapping=mapping,
         )
 
     for flow in package.lesson_plan.lecture_flow:
@@ -108,32 +136,44 @@ def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> 
             bullets.append(f"예상 시간: {flow.duration_min}분")
         bullets.append(flow.content)
         bullets.extend(_alignment_bullets(flow.ncs_alignment))
-        _add_bullet_slide(presentation, f"교안 - {flow.section}", bullets)
+        _add_bullet_slides(
+            presentation,
+            f"교안 - {flow.section}",
+            bullets,
+            semantic_type="lesson",
+            layout_mapping=mapping,
+        )
 
-    _add_bullet_slide(
+    _add_bullet_slides(
         presentation,
         "실습 과제 개요",
         [
             _without_label(package.practice.scenario, "실습 시나리오"),
             f"제출물: {_without_label(package.practice.submission, '제출물')}",
         ],
+        semantic_type="practice",
+        layout_mapping=mapping,
     )
-    _add_bullet_slide(
+    _add_bullet_slides(
         presentation,
         "실습 수행 절차",
         [_without_label(step, "수행 절차") for step in package.practice.steps],
+        semantic_type="practice",
+        layout_mapping=mapping,
     )
-    _add_bullet_slide(
+    _add_bullet_slides(
         presentation,
         "실습 루브릭",
         [
             *[_without_label(item, "평가 기준") for item in package.practice.rubric],
             *_alignment_bullets(package.practice.ncs_alignment),
         ],
+        semantic_type="practice",
+        layout_mapping=mapping,
     )
 
     task = package.assessment.performance_task
-    _add_bullet_slide(
+    _add_bullet_slides(
         presentation,
         "평가 개요",
         [
@@ -141,9 +181,11 @@ def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> 
             f"수행평가: {task.title}",
             task.description,
         ],
+        semantic_type="assessment",
+        layout_mapping=mapping,
     )
     for index, question in enumerate(package.assessment.multiple_choice[:3], start=1):
-        _add_bullet_slide(
+        _add_bullet_slides(
             presentation,
             f"평가 문항 {index}",
             [
@@ -151,19 +193,30 @@ def export_lesson_package_pptx(*, package: LessonPackage, output_path: Path) -> 
                 f"정답: {question.answer_index + 1}",
                 f"해설: {question.explanation}",
             ],
+            semantic_type="assessment",
+            layout_mapping=mapping,
         )
 
     if package.ncs_coverage is not None:
-        _add_bullet_slide(
+        _add_bullet_slides(
             presentation,
             "NCS 수행준거 커버리지",
             _ncs_coverage_bullets(package),
+            semantic_type="ncs_coverage",
+            layout_mapping=mapping,
         )
 
     # 근거는 발표 흐름을 방해하지 않도록 마지막 출처 슬라이드에만 표시한다.
-    _add_bullet_slide(presentation, "근거 출처", _compact_evidence_bullets(package))
+    _add_bullet_slides(
+        presentation,
+        "근거 출처",
+        _compact_evidence_bullets(package),
+        semantic_type="sources",
+        layout_mapping=mapping,
+    )
 
     presentation.save(output_path)
+    _validate_exported_pptx(output_path)
     return output_path
 
 
@@ -333,26 +386,154 @@ def _without_label(value: str, label: str) -> str:
     return normalized
 
 
-def _add_bullet_slide(presentation: Presentation, title: str, bullets: list[str]) -> None:
-    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
-    slide.shapes.title.text = title
-    body = slide.placeholders[1].text_frame
+def _add_bullet_slides(
+    presentation: Presentation,
+    title: str,
+    bullets: list[str],
+    *,
+    semantic_type: str,
+    layout_mapping: dict[str, int],
+) -> None:
+    normalized = _normalize_bullets(bullets)
+    groups = [normalized[index : index + 6] for index in range(0, len(normalized), 6)]
+    if not groups:
+        groups = [["내용이 없습니다."]]
+    for index, group in enumerate(groups):
+        slide = presentation.slides.add_slide(
+            _resolve_layout(
+                presentation,
+                layout_mapping,
+                semantic_type,
+                fallback_index=1,
+            )
+        )
+        continued_title = title if index == 0 else f"{title} (계속)"
+        _set_slide_title(presentation, slide, continued_title)
+        _set_slide_bullets(presentation, slide, group)
+
+
+def _set_slide_title(
+    presentation: Presentation,
+    slide,
+    title: str,
+    *,
+    is_cover: bool = False,
+) -> None:
+    if slide.shapes.title is not None:
+        slide.shapes.title.text = _truncate(title, max_length=100)
+        return
+    box = slide.shapes.add_textbox(
+        Inches(0.7),
+        Inches(0.55),
+        presentation.slide_width - Inches(1.4),
+        Inches(1.0),
+    )
+    paragraph = box.text_frame.paragraphs[0]
+    paragraph.text = _truncate(title, max_length=100)
+    paragraph.font.size = Pt(30 if is_cover else 26)
+    paragraph.font.bold = True
+
+
+def _set_slide_bullets(
+    presentation: Presentation,
+    slide,
+    bullets: list[str],
+    *,
+    prefer_subtitle: bool = False,
+) -> None:
+    body = _body_text_frame(slide, prefer_subtitle=prefer_subtitle)
+    if body is None:
+        box = slide.shapes.add_textbox(
+            Inches(0.8),
+            Inches(1.75),
+            presentation.slide_width - Inches(1.6),
+            presentation.slide_height - Inches(2.35),
+        )
+        body = box.text_frame
+        fallback_font = True
+    else:
+        fallback_font = False
     body.clear()
-    for index, bullet in enumerate(_split_bullets(bullets)):
+    for index, bullet in enumerate(_normalize_bullets(bullets)):
         paragraph = body.paragraphs[0] if index == 0 else body.add_paragraph()
         paragraph.text = _truncate(bullet)
         paragraph.level = 0
+        if fallback_font:
+            paragraph.font.size = Pt(18)
 
 
-def _split_bullets(bullets: list[str], *, max_items: int = 6) -> list[str]:
+def _body_text_frame(slide, *, prefer_subtitle: bool):
+    preferred = {"SUBTITLE"} if prefer_subtitle else {
+        "BODY",
+        "OBJECT",
+        "VERTICAL_BODY",
+        "VERTICAL_OBJECT",
+    }
+    fallback = {"BODY", "OBJECT", "SUBTITLE", "VERTICAL_BODY", "VERTICAL_OBJECT"}
+    candidates = []
+    for placeholder in slide.placeholders:
+        if not placeholder.has_text_frame or placeholder is slide.shapes.title:
+            continue
+        placeholder_type = getattr(
+            placeholder.placeholder_format.type,
+            "name",
+            str(placeholder.placeholder_format.type),
+        )
+        candidates.append((placeholder_type, placeholder.text_frame))
+    for placeholder_type, text_frame in candidates:
+        if placeholder_type in preferred:
+            return text_frame
+    for placeholder_type, text_frame in candidates:
+        if placeholder_type in fallback:
+            return text_frame
+    return None
+
+
+def _resolve_layout(
+    presentation: Presentation,
+    layout_mapping: dict[str, int],
+    semantic_type: str,
+    *,
+    fallback_index: int,
+):
+    if not presentation.slide_layouts:
+        raise ValueError("PPT presentation does not contain any slide layouts")
+    layout_index = layout_mapping.get(semantic_type, fallback_index)
+    if layout_index < 0 or layout_index >= len(presentation.slide_layouts):
+        layout_index = min(fallback_index, len(presentation.slide_layouts) - 1)
+    return presentation.slide_layouts[layout_index]
+
+
+def _remove_source_slides(presentation: Presentation) -> None:
+    slide_ids = presentation.slides._sldIdLst
+    for slide_id in list(slide_ids):
+        presentation.part.drop_rel(slide_id.rId)
+        slide_ids.remove(slide_id)
+
+
+def _validate_exported_pptx(output_path: Path) -> None:
+    try:
+        exported = Presentation(str(output_path))
+    except Exception as exc:
+        raise ValueError("Generated PPTX could not be reopened.") from exc
+    if not exported.slides:
+        raise ValueError("Generated PPTX does not contain any slides.")
+    final_slide_text = [
+        shape.text
+        for shape in exported.slides[-1].shapes
+        if hasattr(shape, "text")
+    ]
+    if "근거 출처" not in final_slide_text:
+        raise ValueError("Generated PPTX is missing the final evidence slide.")
+
+
+def _normalize_bullets(bullets: list[str]) -> list[str]:
     flattened: list[str] = []
     for bullet in bullets:
         normalized = " ".join(str(bullet).split())
         if normalized:
             flattened.append(normalized)
-    if len(flattened) <= max_items:
-        return flattened
-    return [*flattened[: max_items - 1], f"외 {len(flattened) - max_items + 1}개 항목은 DOCX에서 확인"]
+    return flattened
 
 
 def _truncate(value: str, max_length: int = 180) -> str:

@@ -29,6 +29,7 @@
 10. [NCS 특화 기능 보완 기획서](02_implementation-readiness/10_NCS_특화_기능_보완_기획서.md)
 11. [NCS 전체 카탈로그 검색 구축 및 운영 기준](02_implementation-readiness/11_NCS_전체_카탈로그_검색_구축.md)
 12. [NCS 공식 API 기반 RAG 자동 동기화 기획서](02_implementation-readiness/12_NCS_공식_API_RAG_자동_동기화_기획서.md)
+13. [PPT 템플릿 기반 강의자료 생성 기획서](02_implementation-readiness/13_PPT_템플릿_기반_강의자료_생성_기획서.md)
 
 ## 문서 구조
 
@@ -58,6 +59,7 @@ docs/
     10_NCS_특화_기능_보완_기획서.md
     11_NCS_전체_카탈로그_검색_구축.md
     12_NCS_공식_API_RAG_자동_동기화_기획서.md
+    13_PPT_템플릿_기반_강의자료_생성_기획서.md
   03_ui-lovable/
     01_Lovable_UI_생성_프롬프트.md
   04_validation/
@@ -79,7 +81,7 @@ docs/
 | NCS 특화 | NCS/일반 강의 분기, 공식 능력단위 13,442개 검색, 상세 RAG 능력단위 202개·수행준거 2,452개 병합, 공식 API 증분 동기화 코드 구현 |
 | Vector Store | Supabase Postgres + pgvector, 1536차원 semantic embedding 및 HNSW 검색 적용 |
 | LLMOps | LiteLLM, OpenAI primary, Gemini fallback, Langfuse tracing 적용 |
-| Export | DOCX/PPTX export 구현 |
+| Export | DOCX/PPTX export, 사용자 PPTX 템플릿 업로드·레이아웃 매핑·fallback 구현 |
 | 배포 | Docker, GCE, GitHub Actions CI/CD 적용 및 실배포 확인 |
 | 검증 | 공식 API fixture·멱등성·재개 테스트 포함 pytest 전체 통과, mock MVP 전 품질 게이트 PASS, NCS 확장 Supabase 수량·세 분야 실제 RAG 검색 PASS |
 | 품질 보완 | 실제 DOCX/PPTX 테스트 산출물 분석 기반 보완 계획 추가 |

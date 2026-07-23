@@ -56,6 +56,7 @@
 | **NCS 수행준거 점검** | 선택한 수행준거의 교안·실습·평가 연결률과 누락 경고 제공 |
 | 🗂️ **사용자 자료 fallback** | 공통 NCS 자료가 없는 분야는 업로드 교재를 프로젝트 근거로 사용 |
 | 🔁 **자연어 재생성** | "난이도를 낮춰줘", "실습을 하나 더" 처럼 말로 수정 |
+| 🎨 **PPT 템플릿 적용** | 보유한 `.pptx`의 마스터·레이아웃을 적용해 강의자료 생성 |
 | 📥 **DOCX / PPTX 다운로드** | 완성된 강의 패키지를 문서·슬라이드 파일로 내려받기 |
 
 ## 📖 사용 방법
@@ -64,7 +65,7 @@
 
 1. **접속** — [서비스 페이지](https://lessonpack-ai.lovable.app/)에 들어갑니다.
 2. **과정 정보 입력** — NCS 기반 또는 일반 강의를 선택하고 과정명, 차시명, 학습 대상, 훈련 계획, 학습목표와 근거 검색어를 입력합니다. NCS 기반 강의라면 능력단위와 대상 수행준거도 선택합니다.
-3. **교재 업로드 및 자동 생성** — Markdown · TXT · PDF 자료를 올리면 입력한 여러 검색어로 RAG 근거를 찾고 교안 · 실습 · 평가 초안을 자동 생성합니다.
+3. **템플릿·교재 업로드 및 자동 생성** — PPT 디자인을 적용하려면 `.pptx` 템플릿을 선택하고, Markdown · TXT · PDF 교재를 올려 강의 패키지를 생성합니다.
 4. **결과 확인·수정** — 생성 결과를 확인하고, 필요한 경우 바꾸고 싶은 점을 자연어로 입력합니다.
 5. **다운로드** — 완성된 강의 패키지를 **DOCX** 또는 **PPTX**로 내려받습니다.
 
@@ -81,6 +82,7 @@
 - NCS 기반 강의인 경우 관련 **NCS 능력단위와 대상 수행준거**
 - 교안·실습·평가에서 다룰 핵심 주제별 근거 검색어 1~5개
 - 수업 근거로 쓸 교재 자료 (Markdown · TXT · PDF, 파일당 최대 20MB)
+- 선택 사항: 기관·과정용 PowerPoint 템플릿 (`.pptx`, 최대 25MB)
 
 > 일반 사용자는 API 키, Supabase, Langfuse 같은 개발 설정을 **직접 다루지 않아도 됩니다.**
 
@@ -187,10 +189,11 @@ python scripts\check_deployment.py http://localhost:8000
 
 | Method | Endpoint | 설명 |
 |:---|:---|:---|
-| `GET` | `/health` · `/health/rag` | 서비스 · RAG 저장소 상태 확인 |
+| `GET` | `/health` · `/health/rag` · `/health/ppt-template` | 서비스 · RAG · PPT 템플릿 저장소 상태 확인 |
 | `GET` | `/api/ncs/catalog/search` · `/api/ncs/catalog/{unit_code}` | NCS 능력단위 검색 및 수행준거 조회 |
 | `POST` | `/api/projects` | 과정 / 차시 프로젝트 생성 |
 | `POST` | `/api/projects/{id}/materials` | 교재 업로드 및 chunk 생성 |
+| `POST/GET/PUT/DELETE` | `/api/projects/{id}/ppt-template` | PPTX 템플릿 업로드·조회·레이아웃 설정·삭제 |
 | `POST` | `/api/projects/{id}/rag/retrieve` | 프로젝트 우선 · baseline 보조 근거 검색 |
 | `POST` | `/api/projects/{id}/rag/generate` | 단일·다중 query 검색과 패키지 생성 또는 기존 retrieval run 재사용 |
 | `POST` | `/api/packages/{id}/regenerate` | 자연어 지시 기반 새 패키지 생성 |
@@ -201,7 +204,7 @@ python scripts\check_deployment.py http://localhost:8000
 
 운영 UI는 프로젝트 입력의 `retrieval_queries`를 교재 업로드 직후 `/rag/generate`에 전달합니다. 서버는 query별 검색 결과를 하나의 retrieval run으로 병합하고 중복 chunk를 제거합니다. `/rag/retrieve`와 retrieval run 기반 생성은 API 호환성과 진단 용도로 유지합니다.
 
-운영 Supabase에는 API 배포 전 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql), [`006_ncs_course_specialization.sql`](supabase/migrations/006_ncs_course_specialization.sql), [`007_ncs_catalog_search.sql`](supabase/migrations/007_ncs_catalog_search.sql), [`008_ncs_official_api_sync.sql`](supabase/migrations/008_ncs_official_api_sync.sql)을 순서대로 적용해야 합니다. NCS catalog는 한국산업인력공단의 공식 전체 능력단위 CSV와 기존 상세 RAG 데이터를 병합해 적재합니다.
+운영 Supabase에는 API 배포 전 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql)부터 [`009_ppt_template_storage.sql`](supabase/migrations/009_ppt_template_storage.sql)까지 순서대로 적용해야 합니다. NCS catalog는 한국산업인력공단의 공식 전체 능력단위 CSV와 기존 상세 RAG 데이터를 병합해 적재합니다.
 
 ```powershell
 python scripts\prepare_ncs_catalog.py `

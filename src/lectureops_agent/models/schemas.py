@@ -243,6 +243,37 @@ class MaterialIngestResult(BaseModel):
     chunks: list[MaterialChunk] = Field(min_length=1)
 
 
+class PPTTemplateLayout(BaseModel):
+    layout_index: int = Field(ge=0)
+    name: str = Field(min_length=1)
+    placeholder_count: int = Field(ge=0)
+    placeholder_types: list[str] = Field(default_factory=list)
+    supports_title: bool = False
+    supports_body: bool = False
+    body_placeholder_count: int = Field(default=0, ge=0)
+
+
+class PPTTemplateMetadata(BaseModel):
+    template_id: str = Field(min_length=1)
+    project_id: str = Field(min_length=1)
+    original_filename: str = Field(min_length=1)
+    content_hash: str = Field(min_length=64, max_length=64)
+    file_size_bytes: int = Field(gt=0)
+    source_slide_count: int = Field(ge=0)
+    slide_width: int = Field(gt=0)
+    slide_height: int = Field(gt=0)
+    layouts: list[PPTTemplateLayout] = Field(min_length=1)
+    layout_mapping: dict[str, int] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    status: Literal["ready"] = "ready"
+    created_at: datetime
+    updated_at: datetime
+
+
+class PPTTemplateMappingUpdate(BaseModel):
+    layout_mapping: dict[str, int] = Field(min_length=1)
+
+
 class MaterialDocument(BaseModel):
     document_id: str = Field(min_length=1)
     project_id: str = Field(min_length=1)

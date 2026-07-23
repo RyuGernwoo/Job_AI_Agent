@@ -5,7 +5,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -26,6 +26,8 @@ from lectureops_agent.models.schemas import (
     NCSUnit,
     PackageRegenerateRequest,
     PackageRegenerateResponse,
+    PPTTemplateMappingUpdate,
+    PPTTemplateMetadata,
     Project,
     ProjectCreate,
     RAGGenerateRequest,
@@ -50,6 +52,12 @@ from lectureops_agent.services.llm_provider import (
     llm_trace_context,
 )
 from lectureops_agent.services.parser_service import decode_text_material
+from lectureops_agent.services.ppt_template_service import (
+    PPTTemplateStore,
+    analyze_ppt_template,
+    create_ppt_template_store_for_vector_store,
+    validate_layout_mapping,
+)
 from lectureops_agent.services.rag_repository import (
     RAGRepository,
     create_rag_repository_for_vector_store,
@@ -68,6 +76,7 @@ from lectureops_agent.services.vector_store import (
 CHUNK_SIZE_CHARS = 800
 CHUNK_OVERLAP_CHARS = 120
 DEFAULT_MAX_UPLOAD_MB = 20
+DEFAULT_MAX_PPT_TEMPLATE_UPLOAD_MB = 25
 UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -86,6 +95,7 @@ def create_app(
     llm_provider: LLMProvider | None = None,
     app_config: LessonPackConfig | None = None,
     rag_repository: RAGRepository | None = None,
+    ppt_template_store: PPTTemplateStore | None = None,
 ) -> FastAPI:
     load_env_file()
     explicit_app_config = app_config is not None
@@ -115,6 +125,11 @@ def create_app(
         config.max_upload_mb if config else DEFAULT_MAX_UPLOAD_MB,
     )
     max_upload_bytes = max_upload_mb * 1024 * 1024
+    max_ppt_template_upload_mb = _runtime_int(
+        "LESSONPACK_PPT_TEMPLATE_MAX_UPLOAD_MB",
+        DEFAULT_MAX_PPT_TEMPLATE_UPLOAD_MB,
+    )
+    max_ppt_template_upload_bytes = max_ppt_template_upload_mb * 1024 * 1024
     retrieval_top_k = _runtime_int(
         "LESSONPACK_RETRIEVAL_TOP_K",
         config.retrieval_top_k if config else 5,
@@ -132,6 +147,9 @@ def create_app(
         allow_env_override=not explicit_app_config,
     )
     rag_repository = rag_repository or create_rag_repository_for_vector_store(vector_store)
+    ppt_template_store = (
+        ppt_template_store or create_ppt_template_store_for_vector_store(vector_store)
+    )
     if llm_provider is None:
         llm_provider = create_llm_provider_from_config(config) if config else create_llm_provider_from_env()
 
@@ -152,6 +170,14 @@ def create_app(
             "baseline_project_id": baseline_project_id,
             "retrieval_top_k": retrieval_top_k,
             "persistence": persistence,
+        }
+
+    @app.get("/health/ppt-template")
+    def ppt_template_health() -> dict:
+        readiness = ppt_template_store.readiness()
+        return {
+            "status": "ok" if readiness["ready"] else "not_ready",
+            "persistence": readiness,
         }
 
     @app.get("/api/ncs/catalog/search", response_model=list[NCSCatalogUnit])
@@ -255,6 +281,107 @@ def create_app(
             chunk_count=len(chunks),
             chunks=chunks,
         )
+
+    @app.post(
+        "/api/projects/{project_id}/ppt-template",
+        response_model=PPTTemplateMetadata,
+    )
+    async def upload_ppt_template(
+        project_id: str,
+        file: UploadFile = File(...),
+    ) -> PPTTemplateMetadata:
+        _require_project(rag_repository, project_id)
+        content = await _read_upload_content(
+            file,
+            max_upload_bytes=max_ppt_template_upload_bytes,
+            max_upload_mb=max_ppt_template_upload_mb,
+        )
+        try:
+            metadata = analyze_ppt_template(
+                project_id=project_id,
+                filename=file.filename or "lessonpack-template.pptx",
+                content=content,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            return ppt_template_store.save(metadata, content)
+        except Exception as exc:
+            logger.exception("PPT template persistence failed for project %s", project_id)
+            raise HTTPException(
+                status_code=503,
+                detail="PPT template storage is temporarily unavailable.",
+            ) from exc
+
+    @app.get(
+        "/api/projects/{project_id}/ppt-template",
+        response_model=PPTTemplateMetadata,
+    )
+    def get_ppt_template(project_id: str) -> PPTTemplateMetadata:
+        _require_project(rag_repository, project_id)
+        try:
+            metadata = ppt_template_store.get(project_id)
+        except Exception as exc:
+            logger.exception("PPT template lookup failed for project %s", project_id)
+            raise HTTPException(
+                status_code=503,
+                detail="PPT template storage is temporarily unavailable.",
+            ) from exc
+        if metadata is None:
+            raise HTTPException(status_code=404, detail="PPT template not found")
+        return metadata
+
+    @app.put(
+        "/api/projects/{project_id}/ppt-template/mapping",
+        response_model=PPTTemplateMetadata,
+    )
+    def update_ppt_template_mapping(
+        project_id: str,
+        payload: PPTTemplateMappingUpdate,
+    ) -> PPTTemplateMetadata:
+        _require_project(rag_repository, project_id)
+        try:
+            metadata = ppt_template_store.get(project_id)
+        except Exception as exc:
+            logger.exception("PPT template lookup failed for project %s", project_id)
+            raise HTTPException(
+                status_code=503,
+                detail="PPT template storage is temporarily unavailable.",
+            ) from exc
+        if metadata is None:
+            raise HTTPException(status_code=404, detail="PPT template not found")
+        try:
+            layout_mapping = validate_layout_mapping(metadata, payload.layout_mapping)
+            updated = ppt_template_store.update_mapping(project_id, layout_mapping)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("PPT template mapping update failed for project %s", project_id)
+            raise HTTPException(
+                status_code=503,
+                detail="PPT template storage is temporarily unavailable.",
+            ) from exc
+        if updated is None:
+            raise HTTPException(status_code=404, detail="PPT template not found")
+        return updated
+
+    @app.delete(
+        "/api/projects/{project_id}/ppt-template",
+        status_code=204,
+    )
+    def delete_ppt_template(project_id: str) -> Response:
+        _require_project(rag_repository, project_id)
+        try:
+            deleted = ppt_template_store.delete(project_id)
+        except Exception as exc:
+            logger.exception("PPT template deletion failed for project %s", project_id)
+            raise HTTPException(
+                status_code=503,
+                detail="PPT template storage is temporarily unavailable.",
+            ) from exc
+        if not deleted:
+            raise HTTPException(status_code=404, detail="PPT template not found")
+        return Response(status_code=204)
 
     @app.post("/api/projects/{project_id}/retrieve", response_model=list[MaterialChunk])
     def retrieve(project_id: str, payload: RetrieveRequest) -> list[MaterialChunk]:
@@ -536,14 +663,41 @@ def create_app(
         if package is None:
             raise HTTPException(status_code=404, detail="package not found")
         output_path = Path(tempfile.gettempdir()) / "lessonpack_ai_exports" / f"{package_id}.pptx"
+        template_mode = "default"
         try:
-            export_lesson_package_pptx(package=package, output_path=output_path)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            template_metadata = ppt_template_store.get(package.project_id)
+        except Exception:
+            logger.exception("PPT template lookup failed for package %s", package_id)
+            template_metadata = None
+            template_mode = "default-fallback"
+
+        if template_metadata is not None:
+            try:
+                template_content = ppt_template_store.load_content(package.project_id)
+                export_lesson_package_pptx(
+                    package=package,
+                    output_path=output_path,
+                    template_content=template_content,
+                    layout_mapping=template_metadata.layout_mapping,
+                )
+                template_mode = "custom"
+            except Exception:
+                logger.exception(
+                    "PPT template export failed for package %s; using the default presentation",
+                    package_id,
+                )
+                template_mode = "default-fallback"
+
+        if template_mode != "custom":
+            try:
+                export_lesson_package_pptx(package=package, output_path=output_path)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
         return FileResponse(
             path=output_path,
             media_type=PPTX_MEDIA_TYPE,
             filename=build_export_filename(package, "pptx"),
+            headers={"X-LessonPack-PPT-Template-Mode": template_mode},
         )
 
     return app
@@ -843,7 +997,7 @@ def _configure_cors(app: FastAPI) -> None:
         allow_credentials=_env_flag("LESSONPACK_CORS_ALLOW_CREDENTIALS", default=False),
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["Content-Disposition"],
+        expose_headers=["Content-Disposition", "X-LessonPack-PPT-Template-Mode"],
     )
 
 
@@ -854,7 +1008,9 @@ def _cors_response_headers(request: Request) -> dict[str, str]:
         return {}
     headers = {
         "Access-Control-Allow-Origin": origin,
-        "Access-Control-Expose-Headers": "Content-Disposition",
+        "Access-Control-Expose-Headers": (
+            "Content-Disposition, X-LessonPack-PPT-Template-Mode"
+        ),
         "Vary": "Origin",
     }
     if _env_flag("LESSONPACK_CORS_ALLOW_CREDENTIALS", default=False):
