@@ -135,14 +135,15 @@ npm run dev
 
 ### NCS 공식 API 동기화
 
-운영 Supabase에는 `supabase/migrations/001`부터 `009`까지 순서대로 적용합니다. 공식 API 동기화는 카탈로그와 상세 백필을 분리하며, API 할당량 때문에 상세 수행준거 적재는 여러 번의 재개 실행이 필요할 수 있습니다.
+운영 Supabase에는 `supabase/migrations/001`부터 `010`까지 순서대로 적용합니다. 전체 카탈로그는 코드·명칭 검색용 관계형 데이터로만 저장하며 임베딩하지 않습니다. 상세 근거는 실제로 사용할 능력단위를 한 개씩 지정해 RAG에 적재합니다.
 
 ```powershell
-python scripts\sync_ncs_official_api.py --mode all --resume --embed
-python scripts\verify_ncs_official_sync.py --query "프로그래밍 언어 활용 수행준거"
+python scripts\sync_ncs_official_api.py --mode catalog --resume
+python scripts\sync_ncs_official_api.py --mode detail --unit-code 2001020231_23v5 --embed
+python scripts\verify_ncs_official_sync.py --mode detail --query "프로그래밍 언어 활용 수행준거"
 ```
 
-`catalog` 실행은 코드·명칭 검색 범위를 갱신하고, `detail` 실행은 수행준거와 RAG chunk를 보완합니다. 동기화 운영 기준은 [NCS 공식 API 문서](docs/02_implementation-readiness/12_NCS_공식_API_RAG_자동_동기화_기획서.md)를 참고합니다.
+`catalog` 실행은 `ncsCompeUnitInfo`만 호출합니다. `detail` 실행은 선택한 코드의 KSA·적용범위·평가·훈련·평가문항만 저장합니다. 전체 상세 백필과 학습모듈 일괄 수집은 무료 티어 용량 보호를 위해 비활성화되어 있으며, 선택 RAG는 기본 50개 능력단위까지만 허용합니다. 동기화 운영 기준은 [NCS 공식 API 문서](docs/02_implementation-readiness/12_NCS_공식_API_RAG_자동_동기화_기획서.md)를 참고합니다.
 
 ### 검증
 

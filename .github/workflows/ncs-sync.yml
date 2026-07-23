@@ -4,28 +4,25 @@ on:
   schedule:
     # Catalog: Monday 03:00 KST (Sunday 18:00 UTC)
     - cron: "0 18 * * 0"
-    # Detail backfill: every day 03:30 KST (previous day 18:30 UTC)
-    - cron: "30 18 * * *"
-    # Modules: Tuesday 03:00 KST (Monday 18:00 UTC)
-    - cron: "0 18 * * 1"
-    # Full audit: second day of each month 04:00 KST (day 1 at 19:00 UTC)
-    - cron: "0 19 1 * *"
   workflow_dispatch:
     inputs:
       mode:
         description: Synchronization scope
         required: true
-        default: all
+        default: catalog
         type: choice
         options:
           - catalog
           - detail
-          - modules
-          - all
+      unit_code:
+        description: Required for detail mode (for example, 2001020231_23v5)
+        required: false
+        default: ""
+        type: string
       max_requests:
         description: Maximum official API requests
         required: true
-        default: "5000"
+        default: "500"
         type: string
       limit:
         description: Optional record limit for a smoke run
@@ -66,6 +63,7 @@ env:
   LESSONPACK_NCS_SYNC_PAGE_SIZE: "100"
   LESSONPACK_NCS_SYNC_REQUESTS_PER_SECOND: "2"
   LESSONPACK_NCS_SYNC_EMBEDDING_BATCH_SIZE: "8"
+  LESSONPACK_NCS_MAX_SELECTED_UNITS: "50"
   LESSONPACK_SUPABASE_UPSERT_TIMEOUT_RETRIES: "2"
   LESSONPACK_SUPABASE_UPSERT_TIMEOUT_RETRY_DELAY_SECONDS: "0.5"
 
@@ -95,24 +93,18 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EVENT_NAME: ${{ github.event_name }}
-          SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
           INPUT_MODE: ${{ inputs.mode || '' }}
-          INPUT_MAX_REQUESTS: ${{ inputs.max_requests || '5000' }}
+          INPUT_UNIT_CODE: ${{ inputs.unit_code || '' }}
+          INPUT_MAX_REQUESTS: ${{ inputs.max_requests || '500' }}
           INPUT_LIMIT: ${{ inputs.limit || '' }}
           INPUT_DRY_RUN: ${{ inputs.dry_run || 'false' }}
           INPUT_EMBEDDING_BATCH_SIZE: ${{ inputs.embedding_batch_size || env.LESSONPACK_NCS_SYNC_EMBEDDING_BATCH_SIZE }}
         run: |
           set -euo pipefail
-          mode="${INPUT_MODE:-all}"
+          mode="${INPUT_MODE:-catalog}"
           resume="true"
           if [ "$EVENT_NAME" = "schedule" ]; then
-            case "$SCHEDULE_EXPRESSION" in
-              "0 18 * * 0") mode="catalog" ;;
-              "30 18 * * *") mode="detail" ;;
-              "0 18 * * 1") mode="modules" ;;
-              "0 19 1 * *") mode="all"; resume="false" ;;
-              *) mode="all" ;;
-            esac
+            mode="catalog"
           fi
           args=(
             --mode "$mode"
@@ -124,15 +116,22 @@ jobs:
           fi
           if [ "$INPUT_DRY_RUN" = "true" ]; then
             args+=(--dry-run)
-          else
+          elif [ "$mode" = "detail" ]; then
             args+=(--embed)
+          fi
+          if [ "$mode" = "detail" ]; then
+            if [ -z "$INPUT_UNIT_CODE" ]; then
+              echo "unit_code is required for selective detail synchronization" >&2
+              exit 2
+            fi
+            args+=(--unit-code "$INPUT_UNIT_CODE")
           fi
           if [ -n "$INPUT_LIMIT" ]; then
             args+=(--limit "$INPUT_LIMIT")
           fi
           python scripts/sync_ncs_official_api.py "${args[@]}" | tee ncs-sync-report.json
           if [ "$INPUT_DRY_RUN" != "true" ]; then
-            python scripts/verify_ncs_official_sync.py | tee ncs-sync-verification.json
+            python scripts/verify_ncs_official_sync.py --mode "$mode" | tee ncs-sync-verification.json
           fi
 
       - name: Upload sync report

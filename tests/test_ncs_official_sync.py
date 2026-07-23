@@ -63,10 +63,16 @@ MODULE_ROW = {
 
 
 class FakeNCSAPIClient:
-    def __init__(self, *, unit_items: tuple[dict[str, str], ...] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        unit_items: tuple[dict[str, str], ...] | None = None,
+        ksa_items: tuple[dict[str, str], ...] | None = None,
+    ) -> None:
         self.operations: list[str] = []
         self.requests: list[tuple[str, dict[str, str]]] = []
         self.unit_items = unit_items or (UNIT_PAYLOAD,)
+        self.ksa_items = ksa_items or tuple(KSA_PAYLOADS)
 
     def fetch_page(
         self,
@@ -83,7 +89,7 @@ class FakeNCSAPIClient:
             items = self.unit_items
         elif operation == "ncsKsaInfo":
             self._assert_duty_params(request_params)
-            items = tuple(KSA_PAYLOADS)
+            items = self.ksa_items
         else:
             items = ()
         return NCSOfficialAPIPage(
@@ -184,8 +190,10 @@ class NCSOfficialSyncTests(unittest.TestCase):
             store=store,
             vector_store=vector_store,
         )
+        service.sync(NCSOfficialSyncOptions(mode="catalog", max_requests=10))
         options = NCSOfficialSyncOptions(
-            mode="catalog",
+            mode="detail",
+            unit_code="LM2001020205_23v4",
             max_requests=10,
             embed=True,
         )
@@ -194,13 +202,12 @@ class NCSOfficialSyncTests(unittest.TestCase):
         second = service.sync(options)
 
         self.assertEqual(first.status, "completed")
-        self.assertEqual(first.catalog_upsert_count, 1)
-        self.assertEqual(first.chunk_upsert_count, 1)
+        self.assertGreater(first.chunk_upsert_count, 0)
         self.assertEqual(second.changed_count, 0)
         self.assertEqual(second.chunk_upsert_count, 0)
-        self.assertEqual(
+        self.assertGreater(
             len(vector_store.list_chunks(project_id="mvp-dataset", limit=10)),
-            1,
+            0,
         )
 
     def test_detail_sync_uses_catalog_keys_and_merges_criteria(self):
@@ -215,7 +222,12 @@ class NCSOfficialSyncTests(unittest.TestCase):
         service.sync(NCSOfficialSyncOptions(mode="catalog", max_requests=10))
 
         report = service.sync(
-            NCSOfficialSyncOptions(mode="detail", max_requests=20, embed=True)
+            NCSOfficialSyncOptions(
+                mode="detail",
+                unit_code="2001020205_23v4",
+                max_requests=20,
+                embed=True,
+            )
         )
 
         self.assertEqual(report.criterion_upsert_count, 1)
@@ -232,7 +244,6 @@ class NCSOfficialSyncTests(unittest.TestCase):
             if operation in {
                 "ncsScopeInfo",
                 "ncsEvalInfo",
-                "ncsjobInfo",
                 "ncsCompeTrainInfo",
                 "ncsSetqInfo",
             }
@@ -249,36 +260,49 @@ class NCSOfficialSyncTests(unittest.TestCase):
             )
         )
 
-    def test_all_mode_discovers_detail_targets_after_catalog(self):
-        api = FakeNCSAPIClient()
-        store = InMemoryNCSOfficialSyncStore()
-        service = NCSOfficialSyncService(
-            api_client=api,  # type: ignore[arg-type]
-            store=store,
-            vector_store=None,
-        )
+    def test_bulk_modes_and_catalog_embedding_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "catalog or detail"):
+            NCSOfficialSyncOptions(mode="all")
+        with self.assertRaisesRegex(ValueError, "must not embed"):
+            NCSOfficialSyncOptions(mode="catalog", embed=True)
 
-        report = service.sync(
-            NCSOfficialSyncOptions(mode="all", max_requests=50)
-        )
-
-        self.assertEqual(report.status, "completed")
-        self.assertIn("ncsKsaInfo", api.operations)
-        self.assertLess(
-            api.operations.index("ncsCompeUnitInfo"),
-            api.operations.index("ncsKsaInfo"),
-        )
-        self.assertEqual(report.criterion_upsert_count, 1)
-
-    def test_detail_mode_requires_catalog_source_records(self):
+    def test_detail_mode_requires_selected_catalog_unit(self):
         service = NCSOfficialSyncService(
             api_client=FakeNCSAPIClient(),  # type: ignore[arg-type]
             store=InMemoryNCSOfficialSyncStore(),
-            vector_store=None,
+            vector_store=InMemoryVectorStore(),
         )
 
-        with self.assertRaisesRegex(RuntimeError, "catalog synchronization"):
-            service.sync(NCSOfficialSyncOptions(mode="detail"))
+        with self.assertRaisesRegex(RuntimeError, "not in the synchronized catalog"):
+            service.sync(
+                NCSOfficialSyncOptions(
+                    mode="detail",
+                    unit_code="2001020205_23v4",
+                    embed=True,
+                )
+            )
+
+    def test_detail_mode_blocks_new_unit_after_storage_cap(self):
+        store = InMemoryNCSOfficialSyncStore()
+        store.source_records["existing"] = {
+            "unit_code": "2001020206_23v4",
+            "active": True,
+        }
+        service = NCSOfficialSyncService(
+            api_client=FakeNCSAPIClient(),  # type: ignore[arg-type]
+            store=store,
+            vector_store=InMemoryVectorStore(),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "unit limit reached"):
+            service.sync(
+                NCSOfficialSyncOptions(
+                    mode="detail",
+                    unit_code="2001020205_23v4",
+                    embed=True,
+                    max_selected_units=1,
+                )
+            )
 
     def test_module_link_requires_matching_name_and_classification(self):
         store = InMemoryNCSOfficialSyncStore()
@@ -296,7 +320,7 @@ class NCSOfficialSyncTests(unittest.TestCase):
         self.assertEqual(module["unit_code"], "2001020205_23v4")
         self.assertEqual(module["link_status"], "exact")
 
-    def test_partial_run_resumes_at_next_target(self):
+    def test_catalog_uses_only_unit_api_without_raw_or_vector_storage(self):
         api = FakeNCSAPIClient()
         store = InMemoryNCSOfficialSyncStore()
         service = NCSOfficialSyncService(
@@ -305,63 +329,53 @@ class NCSOfficialSyncTests(unittest.TestCase):
             vector_store=None,
         )
 
-        partial = service.sync(
-            NCSOfficialSyncOptions(mode="catalog", max_requests=1)
-        )
-        resumed = service.sync(
-            NCSOfficialSyncOptions(mode="catalog", max_requests=10, resume=True)
-        )
+        report = service.sync(NCSOfficialSyncOptions(mode="catalog", max_requests=10))
 
-        self.assertEqual(partial.status, "partial")
-        self.assertEqual(
-            partial.checkpoint["target_key"],
-            "catalog:ncsDutyInfo",
-        )
-        self.assertEqual(resumed.status, "completed")
-        self.assertEqual(api.operations.count("ncsCdInfo"), 1)
-        self.assertIn("ncsCompeUnitInfo", api.operations)
+        self.assertEqual(report.status, "completed")
+        self.assertEqual(api.operations, ["ncsCompeUnitInfo"])
+        self.assertEqual(report.chunk_upsert_count, 0)
+        self.assertEqual(store.source_records, {})
 
-    def test_complete_partition_deactivates_removed_source_and_old_chunks(self):
-        removed_unit = {
+    def test_duty_api_discards_records_for_unselected_units(self):
+        other_unit = {
             **UNIT_PAYLOAD,
             "ncsClCd": "2001020206_23v4",
             "compUnitCd": "06",
-            "compUnitName": "Removed competency unit",
+            "compUnitName": "Other competency unit",
+        }
+        other_ksa = {
+            **KSA_PAYLOADS[0],
+            **other_unit,
+            "performCrtrNo": "2.1",
+            "performCrtr": "Unselected criterion.",
         }
         store = InMemoryNCSOfficialSyncStore()
         vector_store = InMemoryVectorStore()
-        first_service = NCSOfficialSyncService(
+        service = NCSOfficialSyncService(
             api_client=FakeNCSAPIClient(
-                unit_items=(UNIT_PAYLOAD, removed_unit)
+                unit_items=(UNIT_PAYLOAD, other_unit),
+                ksa_items=(*KSA_PAYLOADS, other_ksa),
             ),  # type: ignore[arg-type]
             store=store,
             vector_store=vector_store,
         )
-        second_service = NCSOfficialSyncService(
-            api_client=FakeNCSAPIClient(
-                unit_items=(UNIT_PAYLOAD,)
-            ),  # type: ignore[arg-type]
-            store=store,
-            vector_store=vector_store,
-        )
-        options = NCSOfficialSyncOptions(
-            mode="catalog",
-            max_requests=10,
-            embed=True,
+        service.sync(NCSOfficialSyncOptions(mode="catalog", max_requests=10))
+        report = service.sync(
+            NCSOfficialSyncOptions(
+                mode="detail",
+                unit_code="2001020205_23v4",
+                max_requests=20,
+                embed=True,
+            )
         )
 
-        first_service.sync(options)
-        second = second_service.sync(options)
-
-        removed_rows = [
-            row
-            for row in store.source_records.values()
-            if row.get("unit_code") == "2001020206_23v4"
-        ]
-        self.assertEqual(len(removed_rows), 1)
-        self.assertFalse(removed_rows[0]["active"])
-        self.assertEqual(second.deleted_chunk_count, 1)
-        self.assertEqual(len(store.deleted_chunk_ids), 1)
+        self.assertEqual(report.criterion_upsert_count, 1)
+        self.assertTrue(
+            all(
+                row.get("unit_code") != "2001020206_23v4"
+                for row in store.source_records.values()
+            )
+        )
 
 
 if __name__ == "__main__":

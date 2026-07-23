@@ -34,8 +34,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--mode",
-        choices=("catalog", "detail", "modules", "all"),
-        default="all",
+        choices=("catalog", "detail"),
+        default="catalog",
     )
     parser.add_argument(
         "--page-size",
@@ -48,7 +48,10 @@ def main(argv: list[str] | None = None) -> int:
         default=_env_int("LESSONPACK_NCS_SYNC_MAX_REQUESTS", 5000),
     )
     parser.add_argument("--limit", type=int, help="Maximum records for a smoke run.")
-    parser.add_argument("--unit-code", help="Restrict detail operations to one NCS code.")
+    parser.add_argument(
+        "--unit-code",
+        help="Required NCS code for selective detail synchronization.",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--embed", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -57,6 +60,12 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=_env_int("LESSONPACK_NCS_SYNC_EMBEDDING_BATCH_SIZE", 8),
         help="Maximum chunks to embed and upsert in one NCS sync batch (default: 8).",
+    )
+    parser.add_argument(
+        "--max-selected-units",
+        type=int,
+        default=_env_int("LESSONPACK_NCS_MAX_SELECTED_UNITS", 50),
+        help="Maximum distinct NCS units retained in selective RAG (default: 50).",
     )
     args = parser.parse_args(argv)
 
@@ -73,14 +82,6 @@ def main(argv: list[str] | None = None) -> int:
         base_url=os.getenv(
             "LESSONPACK_NCS_API_BASE_URL",
             "https://apis.data.go.kr/B490007/ncsInfo",
-        ),
-        module_url=os.getenv(
-            "LESSONPACK_NCS_MODULE_API_URL",
-            "https://apis.data.go.kr/B490007/ncsStudyModule/openapi21",
-        ),
-        reference_base_url=os.getenv(
-            "LESSONPACK_NCS_REFERENCE_API_BASE_URL",
-            "https://apis.data.go.kr/B490007/hrdkapi",
         ),
         requests_per_second=_env_float(
             "LESSONPACK_NCS_SYNC_REQUESTS_PER_SECOND",
@@ -126,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             embed=args.embed,
             dry_run=args.dry_run,
             embedding_batch_size=args.embedding_batch_size,
+            max_selected_units=args.max_selected_units,
         )
     )
     print(json.dumps(report.model_dump(), ensure_ascii=False, indent=2))

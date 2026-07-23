@@ -6,9 +6,8 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Protocol
 from uuid import uuid4
 
-from lectureops_agent.models.schemas import MaterialChunk
+from lectureops_agent.models.schemas import MaterialChunk, normalize_ncs_unit_code
 from lectureops_agent.services.ncs_official_api import (
-    NCS_MODULE_OPERATION,
     NCSOfficialAPIClient,
 )
 from lectureops_agent.services.ncs_rag_chunk_builder import (
@@ -25,11 +24,16 @@ from lectureops_agent.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
-_CATALOG_OPERATIONS = (
-    "ncsCdInfo",
-    "ncsDutyInfo",
-    "ncsCompeUnitInfo",
+_CATALOG_OPERATIONS = ("ncsCompeUnitInfo",)
+_SELECTIVE_DUTY_OPERATIONS = ("ncsKsaInfo",)
+_SELECTIVE_UNIT_OPERATIONS = (
+    "ncsScopeInfo",
+    "ncsEvalInfo",
+    "ncsCompeTrainInfo",
+    "ncsSetqInfo",
 )
+
+
 @dataclass(frozen=True)
 class SourceRecordState:
     payload_hash: str
@@ -43,11 +47,12 @@ class SyncTarget:
     operation: str
     params: dict[str, str] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
+    selected_unit_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class NCSOfficialSyncOptions:
-    mode: str = "all"
+    mode: str = "catalog"
     page_size: int = 100
     max_requests: int = 5000
     record_limit: int | None = None
@@ -56,10 +61,11 @@ class NCSOfficialSyncOptions:
     embed: bool = False
     dry_run: bool = False
     embedding_batch_size: int = 8
+    max_selected_units: int = 50
 
     def __post_init__(self) -> None:
-        if self.mode not in {"catalog", "detail", "modules", "all"}:
-            raise ValueError("mode must be catalog, detail, modules, or all")
+        if self.mode not in {"catalog", "detail"}:
+            raise ValueError("mode must be catalog or detail")
         if self.page_size <= 0:
             raise ValueError("page_size must be greater than 0")
         if self.max_requests <= 0:
@@ -68,6 +74,21 @@ class NCSOfficialSyncOptions:
             raise ValueError("record_limit must be greater than 0")
         if self.embedding_batch_size <= 0:
             raise ValueError("embedding_batch_size must be greater than 0")
+        if self.max_selected_units <= 0:
+            raise ValueError("max_selected_units must be greater than 0")
+        normalized_unit_code = (
+            normalize_ncs_unit_code(self.unit_code) if self.unit_code else None
+        )
+        object.__setattr__(self, "unit_code", normalized_unit_code)
+        if self.mode == "catalog" and self.embed:
+            raise ValueError(
+                "catalog synchronization must not embed records; "
+                "use detail mode with --unit-code"
+            )
+        if self.mode == "detail" and not normalized_unit_code:
+            raise ValueError("detail mode requires a specific unit_code")
+        if self.mode == "detail" and not self.embed and not self.dry_run:
+            raise ValueError("detail mode must embed records outside dry-run")
 
 
 @dataclass
@@ -129,6 +150,9 @@ class NCSOfficialSyncStore(Protocol):
     def list_unit_targets(
         self, unit_code: str | None = None
     ) -> list[dict[str, Any]]:
+        ...
+
+    def list_selected_unit_codes(self) -> set[str]:
         ...
 
     def upsert_source_records(self, rows: list[dict[str, Any]]) -> None:
@@ -212,15 +236,17 @@ class InMemoryNCSOfficialSyncStore:
     def list_unit_targets(
         self, unit_code: str | None = None
     ) -> list[dict[str, Any]]:
-        return _unit_targets_from_source_rows(
-            (
-                row
-                for row in self.source_records.values()
-                if row.get("operation") == "ncsCompeUnitInfo"
-                and row.get("active", True)
-            ),
+        return _unit_targets_from_catalog_rows(
+            self.catalog.values(),
             unit_code=unit_code,
         )
+
+    def list_selected_unit_codes(self) -> set[str]:
+        return {
+            normalize_ncs_unit_code(str(row["unit_code"]))
+            for row in self.source_records.values()
+            if row.get("active", True) and row.get("unit_code")
+        }
 
     def upsert_source_records(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:
@@ -373,23 +399,36 @@ class SupabaseNCSOfficialSyncStore:
     def list_unit_targets(
         self, unit_code: str | None = None
     ) -> list[dict[str, Any]]:
-        source_rows: list[dict[str, Any]] = []
+        query = self.client.table(self.catalog_table).select(
+            "unit_code,unit_name,duty_code,component_code,classification"
+        )
+        if unit_code:
+            query = query.eq("unit_code", normalize_ncs_unit_code(unit_code))
+        rows = _execute(query.limit(1000).execute())
+        return _unit_targets_from_catalog_rows(rows, unit_code=unit_code)
+
+    def list_selected_unit_codes(self) -> set[str]:
+        selected: set[str] = set()
         page_size = 1000
         offset = 0
         while True:
             page = _execute(
                 self.client.table(self.source_table)
-                .select("payload")
-                .eq("operation", "ncsCompeUnitInfo")
+                .select("unit_code")
                 .eq("active", True)
+                .not_.is_("unit_code", "null")
                 .range(offset, offset + page_size - 1)
                 .execute()
             )
-            source_rows.extend(page)
+            selected.update(
+                normalize_ncs_unit_code(str(row["unit_code"]))
+                for row in page
+                if row.get("unit_code")
+            )
             if len(page) < page_size:
                 break
             offset += page_size
-        return _unit_targets_from_source_rows(source_rows, unit_code=unit_code)
+        return selected
 
     def upsert_source_records(self, rows: list[dict[str, Any]]) -> None:
         if rows:
@@ -536,6 +575,18 @@ class NCSOfficialSyncService:
     def sync(self, options: NCSOfficialSyncOptions) -> NCSOfficialSyncReport:
         if options.embed and self.vector_store is None and not options.dry_run:
             raise ValueError("vector_store is required when embed is enabled")
+        if options.mode == "detail" and not options.dry_run:
+            selected_units = self.store.list_selected_unit_codes()
+            assert options.unit_code is not None
+            if (
+                options.unit_code not in selected_units
+                and len(selected_units) >= options.max_selected_units
+            ):
+                raise RuntimeError(
+                    "Selective NCS RAG unit limit reached: "
+                    f"{len(selected_units)}/{options.max_selected_units}. "
+                    "Remove an unused unit before synchronizing a new one."
+                )
         report = NCSOfficialSyncReport(
             run_id=str(uuid4()),
             mode=options.mode,
@@ -546,7 +597,6 @@ class NCSOfficialSyncService:
         if not options.dry_run:
             self.store.start_run(report)
         stopped_early = False
-        discovered_units: dict[tuple[str, str], dict[str, Any]] = {}
         try:
             index = target_index
             while index < len(targets):
@@ -573,17 +623,13 @@ class NCSOfficialSyncService:
                         page_size=options.page_size,
                         context=target.context,
                     )
+                    records = _filter_selected_unit_records(
+                        records,
+                        selected_unit_codes=target.selected_unit_codes,
+                    )
                     if options.record_limit is not None:
                         remaining = options.record_limit - report.received_count
                         records = records[: max(0, remaining)]
-                    if target.operation == "ncsCompeUnitInfo":
-                        for unit in _unit_targets_from_source_rows(
-                            ({"payload": record.payload} for record in records),
-                            unit_code=options.unit_code,
-                        ):
-                            discovered_units[
-                                (str(unit["dutyCd"]), str(unit["compUnitCd"]))
-                            ] = unit
                     page_was_truncated = len(records) < page_item_count
                     seen_source_keys.update(record.source_key for record in records)
                     self._process_records(
@@ -595,27 +641,6 @@ class NCSOfficialSyncService:
                     report.received_count += len(records)
 
                     has_more = page.has_next and bool(page.items)
-                    if (
-                        not page_was_truncated
-                        and not has_more
-                        and options.mode == "all"
-                        and target.operation == "ncsCompeUnitInfo"
-                    ):
-                        detail_targets = _detail_targets(
-                            _merge_unit_targets(
-                                self.store.list_unit_targets(options.unit_code),
-                                list(discovered_units.values()),
-                            )
-                        )
-                        targets = [
-                            *targets[: index + 1],
-                            *detail_targets,
-                            *(
-                                candidate
-                                for candidate in targets[index + 1 :]
-                                if not candidate.key.startswith("detail:")
-                            ),
-                        ]
                     if page_was_truncated:
                         next_checkpoint = {
                             "target_key": target.key,
@@ -649,6 +674,7 @@ class NCSOfficialSyncService:
                         if (
                             can_finalize_target
                             and seen_source_keys
+                            and options.mode == "detail"
                             and not options.dry_run
                         ):
                             stale_chunk_ids = self.store.deactivate_missing(
@@ -691,8 +717,11 @@ class NCSOfficialSyncService:
     ) -> None:
         if not records:
             return
-        states = self.store.get_source_states(
-            [record.source_key for record in records]
+        persist_source_records = options.mode == "detail"
+        states = (
+            self.store.get_source_states([record.source_key for record in records])
+            if persist_source_records
+            else {}
         )
         changed = [
             record
@@ -768,6 +797,9 @@ class NCSOfficialSyncService:
         self.store.delete_chunks(old_chunk_ids)
         report.deleted_chunk_count += len(old_chunk_ids)
 
+        if not persist_source_records:
+            return
+
         source_rows: list[dict[str, Any]] = []
         embedded_keys = {record.source_key for record in embed_records}
         for record in records:
@@ -811,67 +843,48 @@ def _sync_targets(
     store: NCSOfficialSyncStore,
 ) -> list[SyncTarget]:
     targets: list[SyncTarget] = []
-    if options.mode in {"catalog", "all"}:
+    if options.mode == "catalog":
         targets.extend(
             SyncTarget(key=f"catalog:{operation}", operation=operation)
             for operation in _CATALOG_OPERATIONS
         )
-    if options.mode == "detail" or (options.mode == "all" and options.resume):
+    if options.mode == "detail":
         detail_targets = _detail_targets(
             store.list_unit_targets(options.unit_code)
         )
-        if options.mode == "detail" and not detail_targets:
+        if not detail_targets:
             raise RuntimeError(
-                "No synchronized NCS units are available. "
-                "Run catalog synchronization before detail synchronization."
+                f"NCS unit {options.unit_code!r} is not in the synchronized catalog. "
+                "Run catalog synchronization first and verify the unit code."
             )
         targets.extend(detail_targets)
-    if options.mode in {"modules", "all"}:
-        targets.extend(_module_targets())
     return targets
-
-
-def _module_targets() -> list[SyncTarget]:
-    return [
-        SyncTarget(
-            key=f"module:{NCS_MODULE_OPERATION}:{large_code}",
-            operation=NCS_MODULE_OPERATION,
-            params={"ncsLclasCd": large_code},
-        )
-        for large_code in (f"{number:02d}" for number in range(1, 25))
-    ]
 
 
 def _detail_targets(units: list[dict[str, Any]]) -> list[SyncTarget]:
     if not units:
         return []
-    targets = [
-        SyncTarget(
-            key="detail:ncsCompeUnitFactrInfo",
-            operation="ncsCompeUnitFactrInfo",
-        )
-    ]
-    duties = sorted(
-        {
-            str(unit["dutyCd"])
-            for unit in units
-            if unit.get("dutyCd")
-        }
-    )
-    for duty_code in duties:
+    targets: list[SyncTarget] = []
+    units_by_duty: dict[str, list[dict[str, Any]]] = {}
+    for unit in units:
+        units_by_duty.setdefault(str(unit["dutyCd"]), []).append(unit)
+    for duty_code, duty_units in sorted(units_by_duty.items()):
         context = {"dutyCd": duty_code}
-        for operation in (
-            "ncsKsaInfo",
-            "ncsClposInfo",
-            "ncsFusInfo",
-            "ncsTrainCsdrInfo",
-        ):
+        selected_codes = tuple(
+            sorted(
+                normalize_ncs_unit_code(str(unit["ncsClCd"]))
+                for unit in duty_units
+                if unit.get("ncsClCd")
+            )
+        )
+        for operation in _SELECTIVE_DUTY_OPERATIONS:
             targets.append(
                 SyncTarget(
-                    key=f"detail:{operation}:duty:{duty_code}",
+                    key=f"detail:{operation}:units:{','.join(selected_codes)}",
                     operation=operation,
                     params={"dutyCd": duty_code},
                     context=context,
+                    selected_unit_codes=selected_codes,
                 )
             )
     for unit in units:
@@ -884,13 +897,7 @@ def _detail_targets(units: list[dict[str, Any]]) -> list[SyncTarget]:
             and value
         }
         params = {"dutyCd": duty_code, "compUnitCd": component_code}
-        for operation in (
-            "ncsScopeInfo",
-            "ncsEvalInfo",
-            "ncsjobInfo",
-            "ncsCompeTrainInfo",
-            "ncsSetqInfo",
-        ):
+        for operation in _SELECTIVE_UNIT_OPERATIONS:
             targets.append(
                 SyncTarget(
                     key=(
@@ -905,28 +912,25 @@ def _detail_targets(units: list[dict[str, Any]]) -> list[SyncTarget]:
     return targets
 
 
-def _unit_targets_from_source_rows(
+def _unit_targets_from_catalog_rows(
     rows: Iterable[dict[str, Any]],
     *,
     unit_code: str | None = None,
 ) -> list[dict[str, Any]]:
     units: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
-        payload = row.get("payload")
-        if not isinstance(payload, dict):
-            continue
-        duty_code = _payload_value(payload, "dutyCd")
-        component_code = _payload_value(payload, "compUnitCd")
-        full_code = _payload_value(payload, "ncsClCd")
+        duty_code = str(row.get("duty_code") or "").strip()
+        component_code = str(row.get("component_code") or "").strip()
+        full_code = normalize_ncs_unit_code(str(row.get("unit_code") or ""))
         if not duty_code or not component_code:
             continue
-        if unit_code and full_code != unit_code:
+        if unit_code and full_code != normalize_ncs_unit_code(unit_code):
             continue
         units[(duty_code, component_code)] = {
             "dutyCd": duty_code,
             "compUnitCd": component_code,
             "ncsClCd": full_code,
-            "compUnitName": _payload_value(payload, "compUnitName"),
+            "compUnitName": row.get("unit_name"),
         }
     return [
         units[key]
@@ -934,15 +938,22 @@ def _unit_targets_from_source_rows(
     ]
 
 
-def _merge_unit_targets(
-    *groups: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    merged: dict[tuple[str, str], dict[str, Any]] = {}
-    for group in groups:
-        for unit in group:
-            key = (str(unit["dutyCd"]), str(unit["compUnitCd"]))
-            merged[key] = {**merged.get(key, {}), **unit}
-    return [merged[key] for key in sorted(merged)]
+def _filter_selected_unit_records(
+    records: list[CanonicalNCSRecord],
+    *,
+    selected_unit_codes: tuple[str, ...],
+) -> list[CanonicalNCSRecord]:
+    if not selected_unit_codes:
+        return records
+    selected = {
+        normalize_ncs_unit_code(unit_code) for unit_code in selected_unit_codes
+    }
+    return [
+        record
+        for record in records
+        if record.unit_code
+        and normalize_ncs_unit_code(record.unit_code) in selected
+    ]
 
 
 def _payload_value(payload: dict[str, Any], key: str) -> str | None:

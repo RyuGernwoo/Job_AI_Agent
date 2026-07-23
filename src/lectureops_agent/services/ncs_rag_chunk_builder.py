@@ -290,6 +290,14 @@ def catalog_patch(record: CanonicalNCSRecord, *, fetched_at: datetime) -> dict[s
     row: dict[str, Any] = {
         "unit_code": record.unit_code,
         "unit_name": record.unit_name,
+        "duty_code": _pick(
+            _flatten_scalars(record.payload),
+            "dutyCd",
+        ),
+        "component_code": _pick(
+            _flatten_scalars(record.payload),
+            "compUnitCd",
+        ),
         "source_url": record.source_url,
         "official_source_hash": record.payload_hash,
         "official_synced_at": fetched_at.isoformat(),

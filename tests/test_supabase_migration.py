@@ -102,6 +102,15 @@ class SupabaseMigrationTests(unittest.TestCase):
         self.assertIn("official_source_hash text", sql)
         self.assertIn("not the full PDF/HWP module", sql)
 
+    def test_selective_ncs_sync_migration_adds_lookup_keys(self):
+        sql = (
+            ROOT / "supabase" / "migrations" / "010_selective_ncs_sync.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("duty_code text", sql)
+        self.assertIn("component_code text", sql)
+        self.assertIn("lessonpack_ncs_catalog_duty_component_idx", sql)
+
 
 if __name__ == "__main__":
     unittest.main()

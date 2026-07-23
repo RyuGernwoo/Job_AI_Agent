@@ -26,6 +26,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Verify official NCS API sync tables and baseline RAG chunks."
     )
+    parser.add_argument(
+        "--mode",
+        choices=("catalog", "detail"),
+        default="detail",
+    )
     parser.add_argument("--min-source-records", type=int, default=1)
     parser.add_argument("--min-modules", type=int, default=0)
     parser.add_argument(
@@ -50,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     load_env_file()
     client = _create_supabase_client()
     source_count = _count(client, "lessonpack_ncs_source_records")
+    catalog_count = _count(client, "lessonpack_ncs_catalog")
     module_count = _count(client, "lessonpack_ncs_modules")
     successful_runs = _rows(
         client.table("lessonpack_ncs_sync_runs")
@@ -58,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
             "chunk_upsert_count,started_at,finished_at"
         )
         .in_("status", ["completed", "partial"])
+        .eq("mode", args.mode)
         .order("started_at", desc=True)
         .limit(1)
         .execute()
@@ -70,19 +77,22 @@ def main(argv: list[str] | None = None) -> int:
     latest_run = successful_runs[0] if successful_runs else None
     run_age_days = _run_age_days(latest_run)
     checks = {
-        "source_records": source_count >= args.min_source_records,
+        "catalog": catalog_count > 0,
         "modules": module_count >= args.min_modules,
         "successful_run": latest_run is not None,
         "fresh_run": (
             run_age_days is not None
             and run_age_days <= args.max_stale_days
         ),
-        "rag_chunks": chunk_count > 0,
     }
+    if args.mode == "detail":
+        checks["source_records"] = source_count >= args.min_source_records
+        checks["rag_chunks"] = chunk_count > 0
     report: dict[str, Any] = {
         "ready": False,
         "counts": {
             "source_records": source_count,
+            "catalog": catalog_count,
             "modules": module_count,
             "rag_chunks": chunk_count,
         },
