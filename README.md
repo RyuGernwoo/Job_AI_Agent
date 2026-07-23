@@ -201,7 +201,7 @@ python scripts\check_deployment.py http://localhost:8000
 
 운영 UI는 프로젝트 입력의 `retrieval_queries`를 교재 업로드 직후 `/rag/generate`에 전달합니다. 서버는 query별 검색 결과를 하나의 retrieval run으로 병합하고 중복 chunk를 제거합니다. `/rag/retrieve`와 retrieval run 기반 생성은 API 호환성과 진단 용도로 유지합니다.
 
-운영 Supabase에는 API 배포 전 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql), [`006_ncs_course_specialization.sql`](supabase/migrations/006_ncs_course_specialization.sql), [`007_ncs_catalog_search.sql`](supabase/migrations/007_ncs_catalog_search.sql)을 순서대로 적용해야 합니다. NCS catalog는 한국산업인력공단의 공식 전체 능력단위 CSV와 기존 상세 RAG 데이터를 병합해 적재합니다.
+운영 Supabase에는 API 배포 전 [`005_project_retrieval_queries.sql`](supabase/migrations/005_project_retrieval_queries.sql), [`006_ncs_course_specialization.sql`](supabase/migrations/006_ncs_course_specialization.sql), [`007_ncs_catalog_search.sql`](supabase/migrations/007_ncs_catalog_search.sql), [`008_ncs_official_api_sync.sql`](supabase/migrations/008_ncs_official_api_sync.sql)을 순서대로 적용해야 합니다. NCS catalog는 한국산업인력공단의 공식 전체 능력단위 CSV와 기존 상세 RAG 데이터를 병합해 적재합니다.
 
 ```powershell
 python scripts\prepare_ncs_catalog.py `
@@ -209,6 +209,14 @@ python scripts\prepare_ncs_catalog.py `
 python scripts\prepare_ncs_catalog.py `
   --official-csv "C:\path\to\한국산업인력공단_국가직무능력표준 정보_20251231.csv" `
   --upload
+```
+
+공공데이터포털 서비스 키를 설정하고 `LESSONPACK_NCS_API_ENABLED=true`로 활성화한 뒤 공식 능력단위 상세정보와 학습모듈 내용을 증분 동기화할 수 있습니다. `detail` 모드는 `catalog` 원본에 저장된 공식 식별자를 사용하므로 최초 실행은 `all` 또는 `catalog`로 시작합니다.
+
+```powershell
+python scripts\sync_ncs_official_api.py --mode all --resume --embed
+python scripts\verify_ncs_official_sync.py `
+  --query "응용SW엔지니어링 요구사항 확인 수행준거"
 ```
 
 ## 📁 프로젝트 구조
@@ -231,6 +239,7 @@ GitHub Actions에서 테스트와 배포를 분리해 운영합니다.
 |:---|:---|:---|
 | `CI` | push · PR · 수동 | Python compile, 테스트, Docker build 검증 |
 | `CD` | main CI 성공 후 · 수동 | GHCR 이미지 빌드/푸시, GCE 배포, health check |
+| `NCS Official API Sync` | 정기 · 수동 | 공식 NCS 변경 감지, 상세정보·학습모듈 증분 임베딩, Supabase/RAG 검증 |
 
 ## 🔐 보안 주의
 
@@ -248,6 +257,7 @@ GitHub Actions에서 테스트와 배포를 분리해 운영합니다.
 - 🗂️ [NCS 확장 데이터셋 처리 및 RAG 검증 결과](docs/02_implementation-readiness/09_NCS_확장_데이터셋_처리_검증_결과.md)
 - [NCS 특화 기능 보완 기획서 및 구현 현황](docs/02_implementation-readiness/10_NCS_특화_기능_보완_기획서.md)
 - [NCS 전체 카탈로그 검색 구축 및 운영 기준](docs/02_implementation-readiness/11_NCS_전체_카탈로그_검색_구축.md)
+- [NCS 공식 API 기반 RAG 자동 동기화 기획서](docs/02_implementation-readiness/12_NCS_공식_API_RAG_자동_동기화_기획서.md)
 - ✅ [MVP 품질 평가 결과](docs/04_validation/01_MVP_품질_평가_결과.md)
 - 🚀 [GCE Docker CI/CD 배포 계획서](docs/02_implementation-readiness/05_GCE_Docker_CICD_배포_계획서.md)
 

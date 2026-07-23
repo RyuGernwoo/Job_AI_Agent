@@ -28,6 +28,7 @@
 9. [체크포인트 보완 기획서](02_implementation-readiness/06_체크포인트_보완_기획서.md)
 10. [NCS 특화 기능 보완 기획서](02_implementation-readiness/10_NCS_특화_기능_보완_기획서.md)
 11. [NCS 전체 카탈로그 검색 구축 및 운영 기준](02_implementation-readiness/11_NCS_전체_카탈로그_검색_구축.md)
+12. [NCS 공식 API 기반 RAG 자동 동기화 기획서](02_implementation-readiness/12_NCS_공식_API_RAG_자동_동기화_기획서.md)
 
 ## 문서 구조
 
@@ -56,6 +57,7 @@ docs/
     09_NCS_확장_데이터셋_처리_검증_결과.md
     10_NCS_특화_기능_보완_기획서.md
     11_NCS_전체_카탈로그_검색_구축.md
+    12_NCS_공식_API_RAG_자동_동기화_기획서.md
   03_ui-lovable/
     01_Lovable_UI_생성_프롬프트.md
   04_validation/
@@ -67,19 +69,19 @@ docs/
 
 ## 현재 구현 기준
 
-2026-07-22 기준 문서는 다음 구현 상태를 기준으로 정리되어 있습니다.
+2026-07-23 기준 문서는 다음 구현 상태를 기준으로 정리되어 있습니다.
 
 | 영역 | 상태 |
 | --- | --- |
 | API | FastAPI MVP 구현 |
 | UI | Lovable 웹 UI 연동 |
 | 데이터셋 | 기존 6개 선별 원천 43개 chunk + NCS 확장 218개 Markdown·19,103개 chunk |
-| NCS 특화 | NCS/일반 강의 분기, 공식 능력단위 13,442개 검색, 상세 RAG 능력단위 202개·수행준거 2,452개 병합, 수행준거 커버리지 구현 |
+| NCS 특화 | NCS/일반 강의 분기, 공식 능력단위 13,442개 검색, 상세 RAG 능력단위 202개·수행준거 2,452개 병합, 공식 API 증분 동기화 코드 구현 |
 | Vector Store | Supabase Postgres + pgvector, 1536차원 semantic embedding 및 HNSW 검색 적용 |
 | LLMOps | LiteLLM, OpenAI primary, Gemini fallback, Langfuse tracing 적용 |
 | Export | DOCX/PPTX export 구현 |
 | 배포 | Docker, GCE, GitHub Actions CI/CD 적용 및 실배포 확인 |
-| 검증 | NCS 특화 포함 119개 pytest·3개 subtest 통과, mock MVP 전 품질 게이트 PASS, NCS 확장 Supabase 수량·세 분야 실제 RAG 검색 PASS |
+| 검증 | 공식 API fixture·멱등성·재개 테스트 포함 pytest 전체 통과, mock MVP 전 품질 게이트 PASS, NCS 확장 Supabase 수량·세 분야 실제 RAG 검색 PASS |
 | 품질 보완 | 실제 DOCX/PPTX 테스트 산출물 분석 기반 보완 계획 추가 |
 
 ## 문서별 역할

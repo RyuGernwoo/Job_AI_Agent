@@ -87,6 +87,21 @@ class SupabaseMigrationTests(unittest.TestCase):
         self.assertIn("lessonpack_ncs_catalog_unit_name_trgm_idx", sql)
         self.assertIn("criteria array means LessonPack RAG details are not loaded", sql)
 
+    def test_ncs_official_api_sync_migration_adds_resumable_contracts(self):
+        sql = (
+            ROOT / "supabase" / "migrations" / "008_ncs_official_api_sync.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("public.lessonpack_ncs_sync_runs", sql)
+        self.assertIn("public.lessonpack_ncs_source_records", sql)
+        self.assertIn("public.lessonpack_ncs_modules", sql)
+        self.assertIn("embedded_payload_hash text", sql)
+        self.assertIn("partition_key text not null", sql)
+        self.assertIn("chunk_ids jsonb", sql)
+        self.assertIn("official_synced_at timestamptz", sql)
+        self.assertIn("official_source_hash text", sql)
+        self.assertIn("not the full PDF/HWP module", sql)
+
 
 if __name__ == "__main__":
     unittest.main()
