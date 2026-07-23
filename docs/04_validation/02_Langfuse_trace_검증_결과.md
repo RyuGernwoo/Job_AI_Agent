@@ -1,6 +1,31 @@
 # LessonPack AI Langfuse Trace 보완 검증 결과
 
-- 검증일: 2026-07-21
+## 0. 2026-07-23 최종 재검증
+
+- smoke marker: `lessonpack-smoke-6cfc2a77d66f4423ad33dfe90fa5a8ea`
+- provider: `litellm:gpt-4o-mini -> gemini/gemini-3.5-flash`
+- observation type: `GENERATION`
+- model: `gpt-4o-mini-2024-07-18`
+- latency: 7.637초
+- usage: input 51, output 376, total 427 tokens
+- cost: 0.000233249999 USD
+- Public API 탐지: 5번째 polling에서 성공
+
+| 검사 | 결과 |
+| --- | --- |
+| trace name | PASS |
+| Input | PASS |
+| Output | PASS |
+| model | PASS |
+| latency | PASS |
+| usage | PASS |
+| cost | PASS |
+
+Langfuse Observations API v2 기준 rich field가 모두 확인됐다. 같은 날 최종 실제 MVP 생성 검증도 3건 모두 `structured_output_applied=true`로 통과했다.
+
+아래 내용은 2026-07-21 최초 보완 검증 기록이다.
+
+- 최초 검증일: 2026-07-21
 - 대상: LiteLLM 실제 호출 및 Langfuse Cloud JP OTEL 수집
 - 판정: **PASS**
 

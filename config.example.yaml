@@ -10,7 +10,7 @@ llm:
   fallback_models:
     - gemini/gemini-3.5-flash
   timeout_seconds: 30
-  schema_retries: 1
+  schema_retries: 2
   # Sampling temperature. First-pass generation stays low for grounded, stable output;
   # revisions run slightly hotter to diverge from the source package, but moderate enough
   # that the strict output schema (sections, counts, citation ids) still validates.

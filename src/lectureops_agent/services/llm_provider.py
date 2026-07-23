@@ -119,7 +119,7 @@ class LiteLLMProvider:
         fallback_models: list[str] | None = None,
         timeout_seconds: int | float | None = None,
         callbacks: list[str] | None = None,
-        schema_retries: int = 1,
+        schema_retries: int = 2,
         temperature: float = 0.1,
         revision_temperature: float = 0.6,
     ) -> None:
@@ -273,7 +273,7 @@ def create_llm_provider_from_env() -> LLMProvider:
                 os.getenv("LESSONPACK_LITELLM_CALLBACKS")
                 or os.getenv("LESSONPACK_LITELLM_SUCCESS_CALLBACKS", "langfuse_otel")
             ),
-            schema_retries=_optional_int_env("LESSONPACK_LLM_SCHEMA_RETRIES", default=1),
+            schema_retries=_optional_int_env("LESSONPACK_LLM_SCHEMA_RETRIES", default=2),
             temperature=_optional_float_env("LESSONPACK_LITELLM_TEMPERATURE") or 0.1,
             revision_temperature=_optional_float_env("LESSONPACK_LITELLM_REVISION_TEMPERATURE") or 0.6,
         )

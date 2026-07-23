@@ -20,6 +20,7 @@ from lectureops_agent.services.retrieval_service import expanded_query_terms, re
 
 _INTERNAL_METADATA_KEYS = {"project_id", "document_id", "source_name", "source_type", "page"}
 _BASELINE_MIN_COMBINED_SCORE = 0.20
+_SUPABASE_RERANK_CANDIDATE_MIN = 200
 logger = logging.getLogger(__name__)
 
 
@@ -249,10 +250,11 @@ class SupabaseVectorStore:
         return [_supabase_row_to_chunk(row) for row in _response_data(response)]
 
     def query_with_scores(self, *, project_id: str, query: str, top_k: int) -> list[VectorSearchResult]:
+        candidate_count = max(top_k, _SUPABASE_RERANK_CANDIDATE_MIN)
         params = {
             "query_embedding": self.embedding_provider.embed(text=query),
             "match_project_id": project_id,
-            "match_count": top_k,
+            "match_count": candidate_count,
             "match_threshold": self.match_threshold,
         }
         response = self._client.rpc(self.match_function, params).execute()
@@ -262,7 +264,7 @@ class SupabaseVectorStore:
             rows = self._exact_project_fallback(
                 project_id=project_id,
                 query_embedding=params["query_embedding"],
-                top_k=top_k,
+                top_k=candidate_count,
             )
         results: list[VectorSearchResult] = []
         for row in rows:
@@ -277,7 +279,34 @@ class SupabaseVectorStore:
                     score=_combined_score(similarity, lexical, project_scope=False),
                 )
             )
-        return results
+        ranked = sorted(
+            results,
+            key=lambda item: (
+                item.score,
+                item.vector_similarity,
+                item.lexical_overlap,
+                item.chunk.chunk_id,
+            ),
+            reverse=True,
+        )
+        selected = ranked[:top_k]
+        if selected:
+            lexical_best = max(
+                ranked,
+                key=lambda item: (
+                    item.lexical_overlap,
+                    item.score,
+                    item.vector_similarity,
+                    item.chunk.chunk_id,
+                ),
+            )
+            if (
+                lexical_best.chunk.chunk_id
+                not in {item.chunk.chunk_id for item in selected}
+                and lexical_best.lexical_overlap > selected[-1].lexical_overlap
+            ):
+                selected[-1] = lexical_best
+        return selected
 
     def _exact_project_fallback(
         self,
@@ -681,6 +710,8 @@ def _deduplicate_and_rank(
     selected: list[VectorSearchResult] = []
     seen_chunk_ids: set[str] = set()
     seen_content: set[str] = set()
+    all_candidates = [*project_candidates, *baseline_candidates]
+    reached_limit = False
     for candidates in (project_candidates, baseline_candidates):
         ranked = sorted(
             candidates,
@@ -702,7 +733,27 @@ def _deduplicate_and_rank(
             seen_chunk_ids.add(result.chunk.chunk_id)
             seen_content.add(content_key)
             if len(selected) >= top_k:
-                return selected
+                reached_limit = True
+                break
+        if reached_limit:
+            break
+
+    if selected and all_candidates:
+        lexical_best = max(
+            all_candidates,
+            key=lambda item: (
+                item.lexical_overlap,
+                item.score,
+                item.vector_similarity,
+                item.chunk.chunk_id,
+            ),
+        )
+        if (
+            lexical_best.chunk.chunk_id
+            not in {item.chunk.chunk_id for item in selected}
+            and lexical_best.lexical_overlap > selected[-1].lexical_overlap
+        ):
+            selected[-1] = lexical_best
     return selected
 
 

@@ -260,6 +260,8 @@ class GenerationLogTests(unittest.TestCase):
         self.assertEqual(len(result.log.schema_validation_errors), 1)
         self.assertIn("validation feedback", provider.prompts[1])
         self.assertIn("response did not contain a JSON object", provider.prompts[1])
+        self.assertIn(f'Allowed citation_ids JSON: ["{chunk.chunk_id}"]', provider.prompts[1])
+        self.assertIn(f'["{project.ncs_units[0].target_criteria[0]}"]', provider.prompts[1])
 
     def test_generation_rejects_structured_output_with_unknown_citation(self):
         project = sample_project_create().to_project(project_id="project-001")
@@ -279,7 +281,7 @@ class GenerationLogTests(unittest.TestCase):
         )
         self.assertEqual(result.log.citation_ids, [chunk.chunk_id])
 
-    def test_ncs_generation_rejects_structured_output_without_criterion_mapping(self):
+    def test_ncs_generation_enforces_selected_criteria_when_provider_omits_them(self):
         project = sample_project_create().to_project(project_id="project-001")
         chunk = sample_chunk(project.project_id)
 
@@ -290,8 +292,26 @@ class GenerationLogTests(unittest.TestCase):
             package_id="package-missing-ncs-criteria",
         )
 
-        self.assertFalse(result.log.structured_output_applied)
-        self.assertIn("items without ncs_criteria", result.log.schema_validation_errors[0])
+        self.assertTrue(result.log.structured_output_applied)
+        self.assertFalse(result.log.schema_validation_errors)
+        target_criteria = set(project.ncs_units[0].target_criteria)
+        generated_items = [
+            *result.package.lesson_plan.lecture_flow,
+            result.package.practice,
+            *result.package.assessment.multiple_choice,
+            result.package.assessment.performance_task,
+        ]
+        self.assertTrue(all(item.ncs_alignment for item in generated_items))
+        assessed_criteria = {
+            criterion
+            for item in [
+                *result.package.assessment.multiple_choice,
+                result.package.assessment.performance_task,
+            ]
+            for alignment in item.ncs_alignment
+            for criterion in alignment.performance_criteria
+        }
+        self.assertEqual(assessed_criteria, target_criteria)
 
     def test_ncs_revision_preserves_source_criteria_when_provider_omits_them(self):
         project = sample_project_create().to_project(project_id="project-001")

@@ -201,6 +201,10 @@ def generate_lesson_package_with_log(
                 source_package=source_package,
             )
         if provider_draft is not None and project.course_type == CourseType.NCS:
+            provider_draft = _enforce_selected_ncs_criteria(
+                provider_draft,
+                project=project,
+            )
             validation_error = _ncs_provider_alignment_validation_error(
                 provider_draft,
                 project=project,
@@ -240,6 +244,13 @@ def generate_lesson_package_with_log(
                     original_prompt=prompt,
                     invalid_response=provider_response,
                     validation_error=validation_error,
+                    allowed_citation_ids=allowed_citation_ids,
+                    allowed_ncs_criteria={
+                        criterion
+                        for unit in project.ncs_units
+                        for criterion in unit.target_criteria
+                    },
+                    is_ncs_course=project.course_type == CourseType.NCS,
                 )
     if source_package is not None and provider_draft is None:
         logger.warning(
@@ -339,6 +350,14 @@ def build_generation_prompt(
             f"{_truncate_words(chunk.text, max_chars=1200)}"
         )
     evidence_text = "\n".join(evidence_lines)
+    allowed_citation_ids = [chunk.chunk_id for chunk in retrieved_chunks]
+    allowed_ncs_criteria = list(
+        dict.fromkeys(
+            criterion
+            for unit in project.ncs_units
+            for criterion in unit.target_criteria
+        )
+    )
     practice_keyword_text = ", ".join(_practice_keywords(project=project, retrieved_chunks=retrieved_chunks))
     revision_context = ""
     revision_emphasis = ""
@@ -401,6 +420,8 @@ def build_generation_prompt(
         f"{retrieval_query_text or '- Use the lesson title and learning objectives'}\n"
         "Retrieved evidence chunks:\n"
         f"{evidence_text}\n"
+        f"Allowed citation_ids JSON: {json.dumps(allowed_citation_ids, ensure_ascii=False)}\n"
+        f"Allowed ncs_criteria JSON: {json.dumps(allowed_ncs_criteria, ensure_ascii=False)}\n"
         f"Required grounded practice concepts: {practice_keyword_text}\n"
         f"{revision_context}"
         "Return one JSON object only, without Markdown fences or explanatory text. Use this exact schema:\n"
@@ -810,11 +831,25 @@ def _build_schema_repair_prompt(
     original_prompt: str,
     invalid_response: str,
     validation_error: str,
+    allowed_citation_ids: set[str],
+    allowed_ncs_criteria: set[str],
+    is_ncs_course: bool,
 ) -> str:
+    citation_json = json.dumps(sorted(allowed_citation_ids), ensure_ascii=False)
+    criteria_json = json.dumps(sorted(allowed_ncs_criteria), ensure_ascii=False)
+    ncs_rule = (
+        "Every generated item must have a non-empty ncs_criteria array using only exact values "
+        f"from this list: {criteria_json}. Every listed criterion must appear in at least one "
+        "assessment item."
+        if is_ncs_course
+        else "Every ncs_criteria array must be empty because this is a general course."
+    )
     return (
         f"{original_prompt}\n\n"
         "Your previous response could not be applied. Correct it using the validation feedback below.\n"
         f"Validation feedback: {validation_error}\n"
+        f"Every generated item must have a non-empty citation_ids array using only exact values from: {citation_json}.\n"
+        f"{ncs_rule}\n"
         "Return one corrected JSON object only. Do not add Markdown fences, explanations, or fields outside the requested schema.\n"
         "Previous response:\n"
         f"{invalid_response}"
@@ -876,6 +911,102 @@ def _ncs_provider_alignment_validation_error(
     if unassessed:
         errors.append(f"target criteria missing from assessment: {unassessed}")
     return "; ".join(errors)
+
+
+def _enforce_selected_ncs_criteria(
+    draft: _ProviderPackageDraft,
+    *,
+    project: Project,
+) -> _ProviderPackageDraft:
+    """Keep LLM output inside the user-selected NCS planning constraints."""
+    allowed = list(
+        dict.fromkeys(
+            criterion
+            for unit in project.ncs_units
+            for criterion in unit.target_criteria
+        )
+    )
+    if not allowed:
+        return draft
+    allowed_set = set(allowed)
+
+    def normalized(values: list[str], *, fallback_index: int) -> list[str]:
+        valid = list(dict.fromkeys(value for value in values if value in allowed_set))
+        return valid or [allowed[fallback_index % len(allowed)]]
+
+    flows = [
+        flow.model_copy(
+            update={"ncs_criteria": normalized(flow.ncs_criteria, fallback_index=index)}
+        )
+        for index, flow in enumerate(draft.lesson_plan.lecture_flow)
+    ]
+    practice = draft.practice.model_copy(
+        update={
+            "ncs_criteria": normalized(
+                draft.practice.ncs_criteria,
+                fallback_index=len(flows),
+            )
+        }
+    )
+    questions = [
+        question.model_copy(
+            update={
+                "ncs_criteria": normalized(
+                    question.ncs_criteria,
+                    fallback_index=index,
+                )
+            }
+        )
+        for index, question in enumerate(draft.assessment.multiple_choice)
+    ]
+    performance_task = draft.assessment.performance_task.model_copy(
+        update={
+            "ncs_criteria": normalized(
+                draft.assessment.performance_task.ncs_criteria,
+                fallback_index=len(questions),
+            )
+        }
+    )
+
+    assessed = {
+        criterion
+        for question in questions
+        for criterion in question.ncs_criteria
+    } | set(performance_task.ncs_criteria)
+    for index, criterion in enumerate(value for value in allowed if value not in assessed):
+        if questions:
+            question_index = index % len(questions)
+            question = questions[question_index]
+            questions[question_index] = question.model_copy(
+                update={
+                    "ncs_criteria": list(
+                        dict.fromkeys([*question.ncs_criteria, criterion])
+                    )
+                }
+            )
+        else:
+            performance_task = performance_task.model_copy(
+                update={
+                    "ncs_criteria": list(
+                        dict.fromkeys([*performance_task.ncs_criteria, criterion])
+                    )
+                }
+            )
+
+    return draft.model_copy(
+        update={
+            "lesson_plan": draft.lesson_plan.model_copy(
+                update={"lecture_flow": flows}
+            ),
+            "practice": practice,
+            "assessment": draft.assessment.model_copy(
+                update={
+                    "multiple_choice": questions,
+                    "performance_task": performance_task,
+                }
+            ),
+        }
+    )
 
 
 def _provider_ncs_criteria_groups(

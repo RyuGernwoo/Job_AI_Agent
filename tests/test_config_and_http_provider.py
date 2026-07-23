@@ -201,7 +201,7 @@ class ConfigAndHTTPProviderTests(unittest.TestCase):
         self.assertEqual(provider.model, "gpt-4o-mini")
         self.assertEqual(provider.fallback_models, ["gemini/gemini-3.5-flash"])
         self.assertEqual(provider.callbacks, ["langfuse_otel"])
-        self.assertEqual(provider.schema_retries, 1)
+        self.assertEqual(provider.schema_retries, 2)
         # Revisions must run hotter than first-pass generation by default so a natural-language
         # edit diverges from the source package, but moderate enough to keep the schema valid.
         self.assertEqual(provider.temperature, 0.1)

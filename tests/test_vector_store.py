@@ -13,6 +13,8 @@ from lectureops_agent.models.schemas import MaterialChunk
 from lectureops_agent.services.vector_store import (
     InMemoryVectorStore,
     SupabaseVectorStore,
+    VectorSearchResult,
+    _deduplicate_and_rank,
     _lexical_overlap,
     create_vector_store_from_config,
     create_vector_store_from_env,
@@ -384,10 +386,115 @@ class VectorStoreTests(unittest.TestCase):
 
         self.assertEqual(client.rpc_calls[0]["function_name"], "match_lessonpack_chunks")
         self.assertEqual(client.rpc_calls[0]["params"]["match_project_id"], "project-001")
-        self.assertEqual(client.rpc_calls[0]["params"]["match_count"], 3)
+        self.assertEqual(client.rpc_calls[0]["params"]["match_count"], 200)
         self.assertEqual(client.rpc_calls[0]["params"]["match_threshold"], 0.2)
         self.assertEqual([chunk.chunk_id for chunk in retrieved], ["doc001-p000-c001"])
         self.assertEqual(retrieved[0].metadata["license"], "PSF License")
+
+    def test_supabase_vector_store_reranks_vector_candidates_with_hybrid_score(self):
+        client = FakeSupabaseClient()
+        client.rpc_rows = [
+            {
+                "chunk_id": "vector-first",
+                "project_id": "project-001",
+                "document_id": "doc001",
+                "source_name": "sample.md",
+                "source_type": "md",
+                "page": None,
+                "content": "Unrelated semantic result.",
+                "metadata": {},
+                "similarity": 0.91,
+            },
+            {
+                "chunk_id": "hybrid-first",
+                "project_id": "project-001",
+                "document_id": "doc002",
+                "source_name": "sample.md",
+                "source_type": "md",
+                "page": None,
+                "content": "Functions return output.",
+                "metadata": {},
+                "similarity": 0.75,
+            },
+        ]
+        store = SupabaseVectorStore(
+            url="https://example.supabase.co",
+            key="test-key",
+            client=client,
+        )
+
+        retrieved = store.query(project_id="project-001", query="functions return output", top_k=1)
+
+        self.assertEqual([chunk.chunk_id for chunk in retrieved], ["hybrid-first"])
+
+    def test_supabase_vector_store_reserves_a_slot_for_best_lexical_candidate(self):
+        client = FakeSupabaseClient()
+        client.rpc_rows = [
+            {
+                "chunk_id": f"semantic-{index}",
+                "project_id": "project-001",
+                "document_id": f"doc{index:03d}",
+                "source_name": "semantic.md",
+                "source_type": "md",
+                "page": None,
+                "content": "Related material without the exact requested terms.",
+                "metadata": {},
+                "similarity": 0.95 - index * 0.01,
+            }
+            for index in range(3)
+        ] + [
+            {
+                "chunk_id": "lexical-best",
+                "project_id": "project-001",
+                "document_id": "doc999",
+                "source_name": "exact.md",
+                "source_type": "md",
+                "page": None,
+                "content": "Python function text automation assessment criteria.",
+                "metadata": {},
+                "similarity": 0.2,
+            }
+        ]
+        store = SupabaseVectorStore(
+            url="https://example.supabase.co",
+            key="test-key",
+            client=client,
+        )
+
+        retrieved = store.query(
+            project_id="project-001",
+            query="Python function text automation assessment criteria",
+            top_k=3,
+        )
+
+        self.assertEqual(len(retrieved), 3)
+        self.assertIn("lexical-best", [chunk.chunk_id for chunk in retrieved])
+
+    def test_scoped_ranking_preserves_best_lexical_candidate(self):
+        semantic_results = [
+            VectorSearchResult(
+                chunk=make_chunk(index),
+                vector_similarity=0.95 - index * 0.01,
+                lexical_overlap=0.1,
+                score=0.8 - index * 0.01,
+            )
+            for index in range(1, 4)
+        ]
+        lexical_result = VectorSearchResult(
+            chunk=make_chunk(99),
+            vector_similarity=0.2,
+            lexical_overlap=1.0,
+            score=0.5,
+        )
+
+        selected = _deduplicate_and_rank(
+            project_candidates=[*semantic_results, lexical_result],
+            baseline_candidates=[],
+            top_k=3,
+        )
+
+        self.assertEqual(len(selected), 3)
+        self.assertIn("doc001-c099", [result.chunk.chunk_id for result in selected])
 
     def test_in_memory_scoped_query_prioritizes_project_evidence(self):
         store = InMemoryVectorStore()
