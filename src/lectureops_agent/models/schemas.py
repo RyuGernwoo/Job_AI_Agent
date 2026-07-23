@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
@@ -25,6 +26,24 @@ class NCSSourceStatus(str, Enum):
     NEEDS_REVIEW = "needs_review"
 
 
+_NCS_UNIT_CODE_PATTERN = re.compile(
+    r"^(?:LM)?(?P<base>\d{10})(?:_(?P<year>\d{2})v(?P<version>\d+))?$",
+    re.IGNORECASE,
+)
+
+
+def normalize_ncs_unit_code(value: str) -> str:
+    compact = "".join(str(value).split())
+    match = _NCS_UNIT_CODE_PATTERN.fullmatch(compact)
+    if not match:
+        return " ".join(str(value).split())
+
+    suffix = ""
+    if match.group("year"):
+        suffix = f"_{match.group('year')}v{match.group('version')}"
+    return f"{match.group('base')}{suffix}"
+
+
 class NCSUnit(BaseModel):
     unit_code: str = Field(min_length=1)
     unit_name: str = Field(min_length=1)
@@ -36,7 +55,7 @@ class NCSUnit(BaseModel):
 
     @model_validator(mode="after")
     def normalize_unit(self) -> "NCSUnit":
-        self.unit_code = " ".join(self.unit_code.split())
+        self.unit_code = normalize_ncs_unit_code(self.unit_code)
         self.unit_name = " ".join(self.unit_name.split())
         self.elements = _normalize_unique_strings(self.elements)
         self.target_criteria = _normalize_unique_strings(self.target_criteria or self.elements)
@@ -68,12 +87,23 @@ class NCSCatalogUnit(BaseModel):
     source_url: str | None = None
     criteria: list[NCSCatalogCriterion] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def normalize_unit(self) -> "NCSCatalogUnit":
+        self.unit_code = normalize_ncs_unit_code(self.unit_code)
+        self.unit_name = " ".join(self.unit_name.split())
+        return self
+
 
 class NCSAlignment(BaseModel):
     unit_code: str = Field(min_length=1)
     unit_name: str = Field(min_length=1)
     performance_criteria: list[str] = Field(default_factory=list)
     source_md: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_unit(self) -> "NCSAlignment":
+        self.unit_code = normalize_ncs_unit_code(self.unit_code)
+        return self
 
 
 class NCSCriterionCoverage(BaseModel):
@@ -84,6 +114,11 @@ class NCSCriterionCoverage(BaseModel):
     practice: bool = False
     assessment_items: list[str] = Field(default_factory=list)
     covered: bool = False
+
+    @model_validator(mode="after")
+    def normalize_unit(self) -> "NCSCriterionCoverage":
+        self.unit_code = normalize_ncs_unit_code(self.unit_code)
+        return self
 
 
 class NCSCoverageReport(BaseModel):

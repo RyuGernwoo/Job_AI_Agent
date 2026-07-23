@@ -9,6 +9,7 @@ from lectureops_agent.models.schemas import (
     NCSCatalogUnit,
     Project,
     RetrievalRun,
+    normalize_ncs_unit_code,
 )
 
 
@@ -51,7 +52,8 @@ class InMemoryRAGRepository:
         self.retrieval_runs: dict[str, RetrievalRun] = {}
         self.generation_runs: dict[str, GenerationRun] = {}
         self.ncs_catalog: dict[str, NCSCatalogUnit] = {
-            unit.unit_code.casefold(): unit for unit in (ncs_catalog or [])
+            normalize_ncs_unit_code(unit.unit_code).casefold(): unit
+            for unit in (ncs_catalog or [])
         }
         self._document_counts: dict[str, int] = {}
 
@@ -90,7 +92,7 @@ class InMemoryRAGRepository:
         )
 
     def get_ncs_catalog_unit(self, unit_code: str) -> NCSCatalogUnit | None:
-        return self.ncs_catalog.get(unit_code.strip().casefold())
+        return self.ncs_catalog.get(normalize_ncs_unit_code(unit_code).casefold())
 
 
 class SupabaseRAGRepository:
@@ -206,7 +208,8 @@ class SupabaseRAGRepository:
         )
 
     def search_ncs_catalog(self, query: str, *, limit: int) -> list[NCSCatalogUnit]:
-        term = _postgrest_search_term(query)
+        normalized_query = normalize_ncs_unit_code(query)
+        term = _postgrest_search_term(normalized_query)
         if not term:
             return []
         candidate_limit = min(max(limit * 10, 100), 500)
@@ -219,15 +222,16 @@ class SupabaseRAGRepository:
         )
         return _rank_ncs_catalog_results(
             (NCSCatalogUnit.model_validate(row) for row in _response_data(response)),
-            query=query,
+            query=normalized_query,
             limit=limit,
         )
 
     def get_ncs_catalog_unit(self, unit_code: str) -> NCSCatalogUnit | None:
+        normalized_code = normalize_ncs_unit_code(unit_code)
         response = (
             self._client.table(self.ncs_catalog_table)
             .select("*")
-            .eq("unit_code", unit_code.strip())
+            .eq("unit_code", normalized_code)
             .limit(1)
             .execute()
         )
@@ -286,13 +290,13 @@ def _rank_ncs_catalog_results(
     query: str,
     limit: int,
 ) -> list[NCSCatalogUnit]:
-    normalized = " ".join(query.split()).casefold()
+    normalized = normalize_ncs_unit_code(query).casefold()
     if not normalized or limit <= 0:
         return []
 
     ranked: list[tuple[int, int, str, NCSCatalogUnit]] = []
     for unit in units:
-        code = unit.unit_code.casefold()
+        code = normalize_ncs_unit_code(unit.unit_code).casefold()
         name = unit.unit_name.casefold()
         if normalized == code:
             rank = 0

@@ -354,6 +354,29 @@ class NCSSpecializationTests(unittest.TestCase):
         self.assertEqual(results[0].unit_code, "2001020205_23v4")
         self.assertEqual(results[0].criteria, [])
 
+    def test_lm_prefixed_unit_code_is_normalized_to_catalog_code(self):
+        unit = NCSUnit(
+            unit_code="LM2001020231_23V5",
+            unit_name="프로그래밍 언어 활용",
+            target_criteria=["기초 응용소프트웨어를 구현할 수 있다."],
+        )
+
+        self.assertEqual(unit.unit_code, "2001020231_23v5")
+
+    def test_catalog_accepts_lm_prefixed_legacy_query(self):
+        catalog_unit = NCSCatalogUnit(
+            unit_code="2001020231_23v5",
+            unit_name="프로그래밍 언어 활용",
+            criteria=[],
+        )
+        repository = InMemoryRAGRepository(ncs_catalog=[catalog_unit])
+
+        searched = repository.search_ncs_catalog("LM2001020231_23v5", limit=10)
+        loaded = repository.get_ncs_catalog_unit("LM2001020231_23v5")
+
+        self.assertEqual([unit.unit_code for unit in searched], ["2001020231_23v5"])
+        self.assertEqual(loaded, catalog_unit)
+
     def test_official_catalog_without_rag_criteria_is_downgraded_for_manual_criteria(self):
         catalog_unit = NCSCatalogUnit(
             unit_code="NCS-001",

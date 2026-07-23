@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from lectureops_agent.models.schemas import (
     CourseType,
     MaterialChunk,
+    NCSCatalogUnit,
     NCSUnit,
     ProjectCreate,
     RetrievedEvidence,
@@ -67,6 +68,21 @@ class FakeTable:
 
 
 class RAGRepositoryTests(unittest.TestCase):
+    def test_supabase_catalog_lookup_normalizes_learning_module_prefix(self):
+        client = FakeSupabaseClient()
+        client.rows["lessonpack_ncs_catalog"] = [
+            NCSCatalogUnit(
+                unit_code="2001020231_23v5",
+                unit_name="프로그래밍 언어 활용",
+            ).model_dump(mode="json")
+        ]
+        repository = SupabaseRAGRepository(client=client)
+
+        loaded = repository.get_ncs_catalog_unit("LM2001020231_23V5")
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.unit_code, "2001020231_23v5")
+
     def test_supabase_repository_round_trips_project_and_retrieval_run(self):
         client = FakeSupabaseClient()
         repository = SupabaseRAGRepository(client=client)

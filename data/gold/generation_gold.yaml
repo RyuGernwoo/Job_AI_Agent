@@ -6,7 +6,7 @@ cases:
 - case_id: g001
   input:
     curriculum_id: curr-python-prompt-automation
-    ncs_unit_id: '2001020231'
+    ncs_unit_id: 2001020231_23v5
     source_ids:
     - python-functions
     - ncs-programming-language-use
@@ -41,7 +41,7 @@ cases:
 - case_id: g002
   input:
     curriculum_id: curr-python-prompt-automation
-    ncs_unit_id: '2001020230'
+    ncs_unit_id: 2001020230_23v5
     source_ids:
     - python-functions
     - pandas-10min
@@ -75,7 +75,7 @@ cases:
 - case_id: g003
   input:
     curriculum_id: curr-python-prompt-automation
-    ncs_unit_id: '2001020235'
+    ncs_unit_id: 2001020235_23v1
     source_ids:
     - python-data-structures
     - ncs-data-structure-use

@@ -488,9 +488,9 @@ def curriculum_data() -> dict[str, Any]:
             "생성형 AI가 제안한 코드를 근거 자료와 비교해 검토할 수 있다.",
         ],
         "ncs_alignment": {
-            "primary_unit_code": "2001020231",
+            "primary_unit_code": "2001020231_23v5",
             "primary_unit_name": "프로그래밍 언어 활용",
-            "supporting_unit_codes": ["2001020230", "2001020235"],
+            "supporting_unit_codes": ["2001020230_23v5", "2001020235_23v1"],
         },
         "lesson_duration_min": 120,
         "expected_outputs": ["함수 기반 텍스트 변환 코드", "실행 결과 캡처", "핵심 개념 설명 3문장"],
@@ -511,21 +511,21 @@ def ncs_yaml_data() -> dict[str, Any]:
         },
         "selected_units": [
             {
-                "unit_code": "2001020231",
+                "unit_code": "2001020231_23v5",
                 "unit_name": "프로그래밍 언어 활용",
                 "source_md": "data/raw/ncs/converted_md/LM2001020231_23v5_programming_language_use.md",
                 "selected_reason": "Python 기초 문법, 구조적 프로그래밍, 스크립트 언어 활용과 직접 연결",
                 "learning_topics": ["구조적 프로그래밍 언어 활용", "객체지향 프로그래밍 언어 활용", "스크립트 언어 활용"],
             },
             {
-                "unit_code": "2001020230",
+                "unit_code": "2001020230_23v5",
                 "unit_name": "프로그래밍 언어 응용",
                 "source_md": "data/raw/ncs/converted_md/LM2001020230_23v5_programming_language_application.md",
                 "selected_reason": "함수, 라이브러리, 자동화 실습과 연결",
                 "learning_topics": ["언어 특성 활용", "라이브러리 활용"],
             },
             {
-                "unit_code": "2001020235",
+                "unit_code": "2001020235_23v1",
                 "unit_name": "자료구조 활용",
                 "source_md": "data/raw/ncs/converted_md/LM2001020235_23v1_data_structure_use.md",
                 "selected_reason": "Python list, dictionary, 정렬·탐색 실습과 연결",
@@ -533,7 +533,7 @@ def ncs_yaml_data() -> dict[str, Any]:
             },
         ],
         "ncs_unit_summary": {
-            "primary_unit_code": "2001020231",
+            "primary_unit_code": "2001020231_23v5",
             "primary_unit_name": "프로그래밍 언어 활용",
             "source_url": "https://www.ncs.go.kr/",
             "selected_reason": "생성형 AI 활용 Python 기초 과정에서 함수 작성, 자료구조 활용, 자동화 스크립트 작성 역량을 설명하기에 가장 적합",
@@ -651,7 +651,7 @@ def generation_gold_data() -> dict[str, Any]:
                 "case_id": "g001",
                 "input": {
                     "curriculum_id": "curr-python-prompt-automation",
-                    "ncs_unit_id": "2001020231",
+                    "ncs_unit_id": "2001020231_23v5",
                     "source_ids": ["python-functions", "ncs-programming-language-use"],
                 },
                 "expected": {
@@ -665,7 +665,7 @@ def generation_gold_data() -> dict[str, Any]:
                 "case_id": "g002",
                 "input": {
                     "curriculum_id": "curr-python-prompt-automation",
-                    "ncs_unit_id": "2001020230",
+                    "ncs_unit_id": "2001020230_23v5",
                     "source_ids": ["python-functions", "pandas-10min"],
                 },
                 "expected": {
@@ -679,7 +679,7 @@ def generation_gold_data() -> dict[str, Any]:
                 "case_id": "g003",
                 "input": {
                     "curriculum_id": "curr-python-prompt-automation",
-                    "ncs_unit_id": "2001020235",
+                    "ncs_unit_id": "2001020235_23v1",
                     "source_ids": ["python-data-structures", "ncs-data-structure-use"],
                 },
                 "expected": {
