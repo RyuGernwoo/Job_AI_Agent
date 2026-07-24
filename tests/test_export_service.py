@@ -95,7 +95,10 @@ class ExportServiceTests(unittest.TestCase):
                 if hasattr(shape, "text")
             )
             self.assertIn("Python functions and prompt automation practice", slide_text)
-            self.assertIn("실습 과제", slide_text)
+            self.assertIn("실습 개요", slide_text)
+            self.assertIn("실습 수행 절차", slide_text)
+            # 객관식 보기(선택지)와 정답이 슬라이드에 포함되는지 확인한다.
+            self.assertIn("정답: 1번", slide_text)
             self.assertIn("훈련 운영: 총 8시간 · 4차시 · 이론 30% · 실습 70%", slide_text)
             self.assertIn("근거 출처", slide_text)
             self.assertIn("PSF License", slide_text)

@@ -377,15 +377,20 @@ def _layout_score(layout: PPTTemplateLayout, semantic_type: str) -> tuple[int, i
             score += 8
         if "SUBTITLE" in layout.placeholder_types:
             score += 5
-    elif semantic_type == "practice" and layout.body_placeholder_count >= 2:
-        score += 5
-    elif semantic_type == "sources":
-        if any(term in name for term in ("reference", "source", "출처", "참고")):
+    else:
+        # 표지를 제외한 모든 슬라이드는 제목+본문 콘텐츠 레이아웃을 선호한다.
+        if any(term in name for term in ("content", "body", "본문", "내용")):
+            score += 5
+        if semantic_type == "sources" and any(
+            term in name for term in ("reference", "source", "출처", "참고")
+        ):
             score += 7
-    elif any(term in name for term in ("content", "body", "본문", "내용")):
-        score += 5
 
-    return score, layout.body_placeholder_count, -layout.layout_index
+    # 본문 placeholder가 정확히 1개인 레이아웃을 선호한다. 생성기가 본문 하나만 채우므로,
+    # 본문이 여러 개인 레이아웃은 빈 placeholder("텍스트를 입력하십시오")가 남을 수 있다.
+    body_preference = 1 if layout.body_placeholder_count == 1 else 0
+
+    return score, body_preference, -layout.layout_index
 
 
 def _sanitize_filename(value: str) -> str:
