@@ -1,10 +1,13 @@
-﻿import sys
+﻿import io
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from docx import Document
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.util import Inches
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -16,6 +19,7 @@ from lectureops_agent.services.export_service import (
     export_lesson_package_pptx,
 )
 from lectureops_agent.services.generation_service import generate_lesson_package
+from lectureops_agent.services.ppt_template_service import analyze_ppt_template
 
 
 def make_package(status: PackageStatus = PackageStatus.GENERATED):
@@ -110,6 +114,84 @@ class ExportServiceTests(unittest.TestCase):
                 text = "\n".join(shape.text for shape in slide.shapes if hasattr(shape, "text"))
                 self.assertNotIn(chunk_id := package.evidence_sources[0].chunk_id, text)
             self.assertIn(chunk_id, "\n".join(shape.text for shape in presentation.slides[-1].shapes if hasattr(shape, "text")))
+
+    def test_export_uses_distinct_source_slide_designs_beyond_cover(self):
+        template = Presentation()
+        slide_specs = [
+            ("Course Cover", "Course subtitle", "COVER_ACCENT"),
+            ("Contents", "Learning objectives", "OBJECTIVES_ACCENT"),
+            ("Long Content", "Lesson explanation", "LESSON_ACCENT"),
+            ("Timeline STEP1", "Practice procedure", "PRACTICE_ACCENT"),
+            ("Quick Check Quiz", "Assessment question", "ASSESSMENT_ACCENT"),
+            ("Core Skills", "NCS performance criteria", "NCS_ACCENT"),
+            ("References and Sources", "Source list", "SOURCES_ACCENT"),
+        ]
+        for title, body, accent_name in slide_specs:
+            slide = template.slides.add_slide(template.slide_layouts[6])
+            slide.shapes.add_textbox(
+                Inches(0.8),
+                Inches(0.6),
+                Inches(8),
+                Inches(0.8),
+            ).text_frame.text = title
+            slide.shapes.add_textbox(
+                Inches(0.8),
+                Inches(1.8),
+                Inches(8),
+                Inches(3.8),
+            ).text_frame.text = body
+            accent = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE,
+                Inches(9),
+                Inches(0),
+                Inches(1),
+                Inches(7.5),
+            )
+            accent.name = accent_name
+        stream = io.BytesIO()
+        template.save(stream)
+        content = stream.getvalue()
+        metadata = analyze_ppt_template(
+            project_id="project-source-layouts",
+            filename="source-layouts.pptx",
+            content=content,
+        )
+        package = make_package(PackageStatus.GENERATED)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "source_layouts.pptx"
+            export_lesson_package_pptx(
+                package=package,
+                output_path=output_path,
+                template_content=content,
+                layout_mapping=metadata.layout_mapping,
+            )
+            exported = Presentation(str(output_path))
+
+        shape_names = {
+            shape.name
+            for slide in exported.slides
+            for shape in slide.shapes
+        }
+        self.assertTrue(
+            {
+                "COVER_ACCENT",
+                "OBJECTIVES_ACCENT",
+                "LESSON_ACCENT",
+                "PRACTICE_ACCENT",
+                "ASSESSMENT_ACCENT",
+                "NCS_ACCENT",
+                "SOURCES_ACCENT",
+            }.issubset(shape_names)
+        )
+        slide_text = "\n".join(
+            shape.text
+            for slide in exported.slides
+            for shape in slide.shapes
+            if hasattr(shape, "text")
+        )
+        self.assertNotIn("Lesson explanation", slide_text)
+        self.assertNotIn("Assessment question", slide_text)
 
     def test_build_export_filename_uses_safe_lesson_title(self):
         package = make_package(PackageStatus.GENERATED)

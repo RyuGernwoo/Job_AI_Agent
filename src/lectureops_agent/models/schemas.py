@@ -255,6 +255,9 @@ class PPTTemplateLayout(BaseModel):
     supports_title: bool = False
     supports_body: bool = False
     body_placeholder_count: int = Field(default=0, ge=0)
+    source_slide_index: int | None = Field(default=None, ge=0)
+    suggested_roles: list[str] = Field(default_factory=list)
+    content_capacity: int = Field(default=0, ge=0, le=8)
 
 
 class PPTTemplateMetadata(BaseModel):

@@ -23,6 +23,7 @@ PPT_TEMPLATE_SEMANTIC_TYPES = (
     "ncs_coverage",
     "sources",
 )
+SOURCE_SLIDE_LAYOUT_OFFSET = 10_000
 DEFAULT_MAX_ZIP_ENTRIES = 5000
 DEFAULT_MAX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024
 _SAFE_FILENAME = re.compile(r"[^0-9A-Za-z가-힣._ -]+")
@@ -41,6 +42,27 @@ _SOURCE_COVER_EXCLUSION_TERMS = (
     "사용 안내",
     "사용방법",
 )
+_SOURCE_AUTHORING_EXCLUSION_TERMS = (
+    "resource page",
+    "credits",
+    "free fonts",
+    "template uses",
+    "presentation template is free",
+    "slides carnival",
+    "happy designing",
+    "라이선스",
+    "사용 안내",
+    "사용방법",
+)
+_SOURCE_ROLE_LABELS = {
+    "cover": "표지",
+    "objectives": "학습목표·개요",
+    "lesson": "교안 본문",
+    "practice": "실습·절차",
+    "assessment": "평가",
+    "ncs_coverage": "NCS·핵심정리",
+    "sources": "출처·마무리",
+}
 
 
 class PPTTemplateStore(Protocol):
@@ -271,21 +293,28 @@ def analyze_ppt_template(
     except Exception as exc:
         raise ValueError("The uploaded file is not a readable PPTX presentation.") from exc
 
-    layouts = [_layout_manifest(index, layout) for index, layout in enumerate(presentation.slide_layouts)]
-    if not layouts:
+    master_layouts = [
+        _layout_manifest(index, layout)
+        for index, layout in enumerate(presentation.slide_layouts)
+    ]
+    if not master_layouts:
         raise ValueError("PPT template must contain at least one slide layout.")
 
     source_cover_index = reusable_source_cover_index(presentation)
-    if source_cover_index is not None:
+    source_layouts = _source_slide_manifests(
+        presentation,
+        source_cover_index=source_cover_index,
+    )
+    layouts = [*source_layouts, *master_layouts]
+    if source_layouts:
         warnings.append(
-            f"원본 슬라이드 {source_cover_index + 1}의 시각 디자인을 생성 표지에 재사용합니다. "
-            "나머지 원본 슬라이드는 샘플 콘텐츠 유입을 막기 위해 레이아웃 분석에만 사용합니다."
+            f"원본 슬라이드 디자인 {len(source_layouts)}개를 유형별 생성 후보로 분석했습니다."
         )
     elif len(presentation.slides) > 0:
         warnings.append(
-            "안전하게 재사용할 표지 후보가 없어 원본 슬라이드는 레이아웃 분석에만 사용합니다."
+            "안전하게 재사용할 원본 슬라이드 후보가 없어 마스터 레이아웃만 사용합니다."
         )
-    if not any(layout.supports_title and layout.supports_body for layout in layouts):
+    if not any(layout.supports_title and layout.supports_body for layout in master_layouts):
         warnings.append(
             "제목+본문 placeholder 레이아웃이 없어 일부 슬라이드는 텍스트 상자를 사용합니다."
         )
@@ -331,6 +360,37 @@ def reusable_source_cover_index(presentation: Presentation) -> int | None:
             continue
         return index
     return None
+
+
+def source_slide_index_for_layout(layout_index: int | None) -> int | None:
+    if layout_index is None or layout_index < SOURCE_SLIDE_LAYOUT_OFFSET:
+        return None
+    return layout_index - SOURCE_SLIDE_LAYOUT_OFFSET
+
+
+def resolve_template_mapping_for_export(
+    presentation: Presentation,
+    stored_mapping: dict[str, int] | None,
+) -> dict[str, int]:
+    mapping = dict(stored_mapping or {})
+    if any(
+        source_slide_index_for_layout(value) is not None
+        for value in mapping.values()
+    ):
+        return mapping
+
+    source_cover_index = reusable_source_cover_index(presentation)
+    source_layouts = _source_slide_manifests(
+        presentation,
+        source_cover_index=source_cover_index,
+    )
+    if not source_layouts:
+        return mapping
+    master_layouts = [
+        _layout_manifest(index, layout)
+        for index, layout in enumerate(presentation.slide_layouts)
+    ]
+    return _automatic_layout_mapping([*source_layouts, *master_layouts])
 
 
 def validate_layout_mapping(
@@ -398,14 +458,262 @@ def _layout_manifest(index: int, layout: Any) -> PPTTemplateLayout:
     )
 
 
+def _source_slide_manifests(
+    presentation: Presentation,
+    *,
+    source_cover_index: int | None,
+) -> list[PPTTemplateLayout]:
+    manifests: list[PPTTemplateLayout] = []
+    for index, slide in enumerate(presentation.slides):
+        text_shapes = [
+            shape
+            for shape in _iter_source_text_shapes(slide.shapes)
+            if shape.text.strip()
+        ]
+        content_text_shapes = [
+            shape
+            for shape in text_shapes
+            if not any(
+                term in " ".join(shape.text.split()).casefold()
+                for term in ("back to contents", "목차로", "처음으로")
+            )
+        ]
+        normalized_text = " ".join(shape.text.strip() for shape in text_shapes).casefold()
+        if not normalized_text or not content_text_shapes:
+            continue
+        if any(term in normalized_text for term in _SOURCE_AUTHORING_EXCLUSION_TERMS):
+            continue
+        if _source_slide_has_chart(slide):
+            continue
+
+        has_table = _source_slide_has_table(slide)
+        title = _source_slide_title(
+            presentation,
+            content_text_shapes,
+        )
+        content_capacity = _source_slide_content_capacity(
+            presentation,
+            content_text_shapes,
+            has_table=has_table,
+        )
+        roles = _source_slide_roles(
+            index=index,
+            text=normalized_text,
+            title=title.casefold(),
+            source_cover_index=source_cover_index,
+            has_table=has_table,
+        )
+        if not roles:
+            continue
+        role_label = _SOURCE_ROLE_LABELS[roles[0]]
+        placeholder_types = ["SOURCE_TITLE"]
+        if len(content_text_shapes) > 1:
+            placeholder_types.append("SOURCE_BODY")
+        if has_table:
+            placeholder_types.append("SOURCE_TABLE")
+        manifests.append(
+            PPTTemplateLayout(
+                layout_index=SOURCE_SLIDE_LAYOUT_OFFSET + index,
+                name=f"{role_label} · {title}",
+                placeholder_count=len(content_text_shapes) + int(has_table),
+                placeholder_types=placeholder_types,
+                supports_title=bool(content_text_shapes),
+                supports_body=content_capacity > 0,
+                body_placeholder_count=max(0, len(content_text_shapes) - 1)
+                + int(has_table),
+                source_slide_index=index,
+                suggested_roles=roles,
+                content_capacity=content_capacity,
+            )
+        )
+    return manifests
+
+
+def _source_slide_roles(
+    *,
+    index: int,
+    text: str,
+    title: str,
+    source_cover_index: int | None,
+    has_table: bool,
+) -> list[str]:
+    if index == source_cover_index:
+        return ["cover"]
+    if any(
+        term in text
+        for term in (
+            "references",
+            "sources",
+            "bibliography",
+            "evidence sources",
+            "근거 출처",
+            "참고 문헌",
+        )
+    ):
+        return ["sources"]
+    if (
+        title.strip()
+        in {
+            "contents",
+            "summary",
+            "목차",
+            "목차 페이지",
+            "핵심정리",
+            "핵심정리 페이지",
+            "introduction",
+            "소개",
+        }
+        or any(term in text for term in ("목차 페이지", "핵심정리 페이지", "introduction"))
+    ):
+        return ["objectives", "ncs_coverage", "lesson"]
+    if (
+        any(
+            term in text
+            for term in (
+                "quick check",
+                "quiz",
+                "assessment",
+                "before & after",
+                "비교 혹은 대조",
+            )
+        )
+        or any(term in title for term in ("평가", "문항"))
+    ):
+        return ["assessment", "practice"]
+    if any(
+        term in text
+        for term in (
+            "핵심키워드",
+            "skill",
+            "능력",
+            "평균 학점",
+            "수상",
+            "metric",
+        )
+    ):
+        return ["ncs_coverage", "objectives", "assessment", "practice"]
+    if any(
+        term in text
+        for term in (
+            "timeline",
+            "타임라인",
+            "step1",
+            "project",
+            "프로젝트",
+            "practice",
+            "exercise",
+            "icebreaker",
+            "실습",
+        )
+    ) or any(term in text for term in ("step1", "타임라인 페이지")):
+        return ["practice", "assessment", "lesson"]
+    if has_table:
+        return ["ncs_coverage", "assessment", "lesson"]
+    return ["lesson", "practice"]
+
+
+def _source_slide_title(
+    presentation: Presentation,
+    text_shapes: list[Any],
+) -> str:
+    title_shape = _source_slide_title_shape(presentation, text_shapes)
+    return " ".join(title_shape.text.split())[:70] or "콘텐츠 디자인"
+
+
+def _source_slide_title_shape(
+    presentation: Presentation,
+    text_shapes: list[Any],
+):
+    candidates = [
+        shape
+        for shape in text_shapes
+        if (shape.top or 0) <= presentation.slide_height * 0.35
+        and (shape.width or 0) >= presentation.slide_width * 0.1
+    ]
+    pool = candidates or text_shapes
+    return max(
+        pool,
+        key=lambda shape: (
+            _source_shape_max_font_size(shape),
+            -(shape.top or 0),
+            (shape.width or 0) * (shape.height or 0),
+        ),
+    )
+
+
+def _source_slide_content_capacity(
+    presentation: Presentation,
+    text_shapes: list[Any],
+    *,
+    has_table: bool,
+) -> int:
+    if not text_shapes:
+        return 0
+    title_shape = _source_slide_title_shape(presentation, text_shapes)
+    body_shapes = [shape for shape in text_shapes if shape is not title_shape]
+    slide_area = presentation.slide_width * presentation.slide_height
+    body_area_ratio = (
+        sum((shape.width or 0) * (shape.height or 0) for shape in body_shapes)
+        / slide_area
+    )
+    capacity = len(body_shapes) + round(body_area_ratio * 24)
+    if has_table:
+        capacity = max(capacity, 4)
+    return min(8, max(0, capacity))
+
+
+def _source_shape_max_font_size(shape: Any) -> float:
+    sizes = [
+        run.font.size.pt
+        for paragraph in shape.text_frame.paragraphs
+        for run in paragraph.runs
+        if run.font.size is not None
+    ]
+    return max(sizes, default=0.0)
+
+
+def _iter_source_text_shapes(shapes: Any):
+    for shape in shapes:
+        if getattr(shape, "has_text_frame", False):
+            yield shape
+        nested_shapes = getattr(shape, "shapes", None)
+        if nested_shapes is not None:
+            yield from _iter_source_text_shapes(nested_shapes)
+
+
+def _source_slide_has_table(slide: Any) -> bool:
+    return any(getattr(shape, "has_table", False) for shape in slide.shapes)
+
+
+def _source_slide_has_chart(slide: Any) -> bool:
+    return any(getattr(shape, "has_chart", False) for shape in slide.shapes)
+
+
 def _automatic_layout_mapping(layouts: list[PPTTemplateLayout]) -> dict[str, int]:
-    return {
-        semantic_type: max(
+    mapping: dict[str, int] = {}
+    used_source_slides: set[int] = set()
+    for semantic_type in PPT_TEMPLATE_SEMANTIC_TYPES:
+        ranked = sorted(
             layouts,
             key=lambda layout: _layout_score(layout, semantic_type),
-        ).layout_index
-        for semantic_type in PPT_TEMPLATE_SEMANTIC_TYPES
-    }
+            reverse=True,
+        )
+        if semantic_type == "sources":
+            selected = ranked[0]
+        else:
+            selected = next(
+                (
+                    layout
+                    for layout in ranked
+                    if layout.source_slide_index is None
+                    or layout.source_slide_index not in used_source_slides
+                ),
+                ranked[0],
+            )
+        mapping[semantic_type] = selected.layout_index
+        if selected.source_slide_index is not None:
+            used_source_slides.add(selected.source_slide_index)
+    return mapping
 
 
 def _layout_score(layout: PPTTemplateLayout, semantic_type: str) -> tuple[int, int, int]:
@@ -415,6 +723,19 @@ def _layout_score(layout: PPTTemplateLayout, semantic_type: str) -> tuple[int, i
         score += 4
     if layout.supports_body:
         score += 4
+
+    if layout.source_slide_index is not None:
+        score += 12
+        if semantic_type != "cover":
+            score += layout.content_capacity * 2
+            if layout.content_capacity == 0:
+                score -= 80
+        if layout.suggested_roles:
+            if layout.suggested_roles[0] == semantic_type:
+                score += 60
+            elif semantic_type in layout.suggested_roles:
+                role_position = layout.suggested_roles.index(semantic_type)
+                score += 40 if role_position == 1 else 25 if role_position == 2 else 15
 
     if semantic_type == "cover":
         if any(term in name for term in ("title", "cover", "표지", "제목")):

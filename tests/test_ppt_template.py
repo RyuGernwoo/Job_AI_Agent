@@ -19,6 +19,7 @@ from lectureops_agent.app.main import create_app
 from lectureops_agent.models.schemas import MaterialChunk, NCSUnit, ProjectCreate
 from lectureops_agent.services.ppt_template_service import (
     InMemoryPPTTemplateStore,
+    SOURCE_SLIDE_LAYOUT_OFFSET,
     SupabasePPTTemplateStore,
     analyze_ppt_template,
     reusable_source_cover_index,
@@ -187,7 +188,7 @@ class PPTTemplateTests(unittest.TestCase):
         )
         self.assertTrue(metadata.warnings)
         self.assertTrue(
-            any("시각 디자인" in warning for warning in metadata.warnings)
+            any("원본 슬라이드 디자인" in warning for warning in metadata.warnings)
         )
 
     def test_source_cover_selection_skips_contents_slide(self):
@@ -208,6 +209,58 @@ class PPTTemplateTests(unittest.TestCase):
         ).text_frame.text = "Course Presentation"
 
         self.assertEqual(reusable_source_cover_index(presentation), 1)
+
+    def test_source_slides_create_distinct_semantic_mapping_candidates(self):
+        presentation = Presentation()
+        slide_specs = [
+            ("Course Cover", "Course subtitle"),
+            ("Contents", "Learning objectives"),
+            ("Long Content", "Lesson explanation"),
+            ("Timeline STEP1", "Practice procedure"),
+            ("Quick Check Quiz", "Assessment question"),
+            ("Core Skills", "NCS performance criteria"),
+            ("References and Sources", "Source list"),
+        ]
+        for title, body in slide_specs:
+            slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+            slide.shapes.add_textbox(
+                Inches(0.8),
+                Inches(0.6),
+                Inches(8),
+                Inches(0.8),
+            ).text_frame.text = title
+            slide.shapes.add_textbox(
+                Inches(0.8),
+                Inches(1.8),
+                Inches(8),
+                Inches(3.8),
+            ).text_frame.text = body
+        stream = io.BytesIO()
+        presentation.save(stream)
+
+        metadata = analyze_ppt_template(
+            project_id="project-source-layouts",
+            filename="source-layouts.pptx",
+            content=stream.getvalue(),
+        )
+
+        expected_indices = {
+            "cover": 0,
+            "objectives": 1,
+            "lesson": 2,
+            "practice": 3,
+            "assessment": 4,
+            "ncs_coverage": 5,
+            "sources": 6,
+        }
+        self.assertEqual(
+            {
+                semantic_type: layout_index - SOURCE_SLIDE_LAYOUT_OFFSET
+                for semantic_type, layout_index in metadata.layout_mapping.items()
+            },
+            expected_indices,
+        )
+        self.assertEqual(len(set(metadata.layout_mapping.values())), 7)
 
     def test_template_analysis_rejects_non_pptx_content(self):
         with self.assertRaisesRegex(ValueError, "Office Open XML"):

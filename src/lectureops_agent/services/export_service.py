@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import io
 import re
-from collections import OrderedDict
+from collections import Counter, OrderedDict
+from copy import deepcopy
 from pathlib import Path
 
 from docx import Document
@@ -11,11 +12,16 @@ from pptx.enum.text import MSO_AUTO_SIZE
 from pptx.util import Inches, Pt
 
 from lectureops_agent.models.schemas import CourseType, CitationDetail, LessonPackage, NCSAlignment
-from lectureops_agent.services.ppt_template_service import reusable_source_cover_index
+from lectureops_agent.services.ppt_template_service import (
+    resolve_template_mapping_for_export,
+    reusable_source_cover_index,
+    source_slide_index_for_layout,
+)
 
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _FILENAME_SEPARATOR = re.compile(r"[\s_]+")
+_SOURCE_NAVIGATION_TERMS = ("back to contents", "목차로", "처음으로")
 
 
 def export_lesson_package_docx(*, package: LessonPackage, output_path: Path) -> Path:
@@ -97,28 +103,41 @@ def export_lesson_package_pptx(
         if template_content is not None
         else Presentation()
     )
-    source_cover_index = (
-        reusable_source_cover_index(presentation)
+    source_slide_count = len(presentation.slides) if template_content is not None else 0
+    mapping = (
+        resolve_template_mapping_for_export(presentation, layout_mapping)
         if template_content is not None
-        else None
+        else dict(layout_mapping or {})
     )
-    if template_content is not None:
-        _remove_source_slides(presentation, keep_index=source_cover_index)
-    mapping = layout_mapping or {}
+    preserved_brand_texts = _repeated_brand_texts(
+        presentation,
+        source_slide_count=source_slide_count,
+    )
+    source_cover_index = source_slide_index_for_layout(mapping.get("cover"))
+    if source_cover_index is None and template_content is not None:
+        source_cover_index = reusable_source_cover_index(presentation)
 
     # 표지
     training_plan = _training_plan_summary(package)
-    if source_cover_index is not None:
-        cover = presentation.slides[0]
-        _populate_reused_source_cover(
+    if (
+        source_cover_index is not None
+        and 0 <= source_cover_index < source_slide_count
+    ):
+        cover = _duplicate_source_slide(
+            presentation,
+            presentation.slides[source_cover_index],
+        )
+        _populate_reused_source_slide(
             presentation,
             cover,
             title=package.lesson_plan.title,
-            subtitle="\n".join(
-                value
+            bullets=[
+                (value, 0)
                 for value in ["LessonPack AI 강의 패키지", training_plan]
                 if value
-            ),
+            ],
+            preserved_texts=preserved_brand_texts,
+            is_cover=True,
         )
     else:
         cover = presentation.slides.add_slide(
@@ -139,6 +158,8 @@ def export_lesson_package_pptx(
         [(objective, 0) for objective in package.lesson_plan.learning_objectives],
         semantic_type="objectives",
         layout_mapping=mapping,
+        source_slide_count=source_slide_count,
+        preserved_texts=preserved_brand_texts,
     )
     if package.course_type == CourseType.GENERAL:
         _add_bullet_slides(
@@ -150,6 +171,8 @@ def export_lesson_package_pptx(
             ],
             semantic_type="objectives",
             layout_mapping=mapping,
+            source_slide_count=source_slide_count,
+            preserved_texts=preserved_brand_texts,
         )
 
     # 교안 (섹션별, 본문을 문장 단위 불릿으로 분해해 가독성 확보)
@@ -165,6 +188,8 @@ def export_lesson_package_pptx(
             blocks,
             semantic_type="lesson",
             layout_mapping=mapping,
+            source_slide_count=source_slide_count,
+            preserved_texts=preserved_brand_texts,
         )
 
     # 실습
@@ -178,6 +203,8 @@ def export_lesson_package_pptx(
         ],
         semantic_type="practice",
         layout_mapping=mapping,
+        source_slide_count=source_slide_count,
+        preserved_texts=preserved_brand_texts,
     )
     _add_bullet_slides(
         presentation,
@@ -188,6 +215,8 @@ def export_lesson_package_pptx(
         ],
         semantic_type="practice",
         layout_mapping=mapping,
+        source_slide_count=source_slide_count,
+        preserved_texts=preserved_brand_texts,
     )
     _add_bullet_slides(
         presentation,
@@ -198,6 +227,8 @@ def export_lesson_package_pptx(
         ],
         semantic_type="practice",
         layout_mapping=mapping,
+        source_slide_count=source_slide_count,
+        preserved_texts=preserved_brand_texts,
     )
 
     # 평가 개요
@@ -212,6 +243,8 @@ def export_lesson_package_pptx(
         ],
         semantic_type="assessment",
         layout_mapping=mapping,
+        source_slide_count=source_slide_count,
+        preserved_texts=preserved_brand_texts,
     )
     # 객관식 전 문항: 보기(선택지)와 정답·해설을 한 문항당 한 슬라이드로 제시한다.
     for index, question in enumerate(package.assessment.multiple_choice, start=1):
@@ -229,6 +262,8 @@ def export_lesson_package_pptx(
             semantic_type="assessment",
             layout_mapping=mapping,
             paginate=False,
+            source_slide_count=source_slide_count,
+            preserved_texts=preserved_brand_texts,
         )
 
     # 수행평가 상세
@@ -243,6 +278,8 @@ def export_lesson_package_pptx(
         ],
         semantic_type="assessment",
         layout_mapping=mapping,
+        source_slide_count=source_slide_count,
+        preserved_texts=preserved_brand_texts,
     )
 
     if package.ncs_coverage is not None:
@@ -252,6 +289,8 @@ def export_lesson_package_pptx(
             [(bullet, 0) for bullet in _ncs_coverage_bullets(package)],
             semantic_type="ncs_coverage",
             layout_mapping=mapping,
+            source_slide_count=source_slide_count,
+            preserved_texts=preserved_brand_texts,
         )
 
     # 근거는 발표 흐름을 방해하지 않도록 마지막 출처 슬라이드에만 표시한다.
@@ -261,8 +300,12 @@ def export_lesson_package_pptx(
         [(bullet, 0) for bullet in _compact_evidence_bullets(package)],
         semantic_type="sources",
         layout_mapping=mapping,
+        source_slide_count=source_slide_count,
+        preserved_texts=preserved_brand_texts,
     )
 
+    if source_slide_count:
+        _remove_source_slides(presentation, source_slide_count=source_slide_count)
     presentation.save(output_path)
     _validate_exported_pptx(output_path)
     return output_path
@@ -487,24 +530,91 @@ def _add_bullet_slides(
     semantic_type: str,
     layout_mapping: dict[str, int],
     paginate: bool = True,
+    source_slide_count: int = 0,
+    preserved_texts: set[str] | None = None,
 ) -> None:
     normalized = _normalize_blocks(bullets)
     if not normalized:
         normalized = [("내용이 없습니다.", 0)]
+    source_slide_index = source_slide_index_for_layout(
+        layout_mapping.get(semantic_type)
+    )
+    block_capacity = _SLIDE_BLOCK_CAPACITY
+    if (
+        source_slide_index is not None
+        and 0 <= source_slide_index < source_slide_count
+    ):
+        block_capacity = _source_slide_block_capacity(
+            presentation,
+            presentation.slides[source_slide_index],
+            preserved_texts=preserved_texts or set(),
+        )
     if paginate:
         groups = [
-            normalized[index : index + _SLIDE_BLOCK_CAPACITY]
-            for index in range(0, len(normalized), _SLIDE_BLOCK_CAPACITY)
+            normalized[index : index + block_capacity]
+            for index in range(0, len(normalized), block_capacity)
         ]
     else:
         groups = [normalized]
     for index, group in enumerate(groups):
-        slide = presentation.slides.add_slide(
-            _resolve_layout(presentation, layout_mapping, semantic_type, fallback_index=1)
-        )
         continued_title = title if index == 0 else f"{title} (계속)"
-        _set_slide_title(presentation, slide, continued_title)
-        _set_slide_bullets(presentation, slide, group)
+        if (
+            source_slide_index is not None
+            and 0 <= source_slide_index < source_slide_count
+        ):
+            slide = _duplicate_source_slide(
+                presentation,
+                presentation.slides[source_slide_index],
+            )
+            _populate_reused_source_slide(
+                presentation,
+                slide,
+                title=continued_title,
+                bullets=group,
+                preserved_texts=preserved_texts or set(),
+            )
+        else:
+            slide = presentation.slides.add_slide(
+                _resolve_layout(
+                    presentation,
+                    layout_mapping,
+                    semantic_type,
+                    fallback_index=1,
+                )
+            )
+            _set_slide_title(presentation, slide, continued_title)
+            _set_slide_bullets(presentation, slide, group)
+
+
+def _source_slide_block_capacity(
+    presentation: Presentation,
+    slide,
+    *,
+    preserved_texts: set[str],
+) -> int:
+    text_shapes = [
+        shape
+        for shape in _iter_text_shapes(slide.shapes)
+        if shape.text.strip()
+        and _normalize_source_text(shape.text) not in preserved_texts
+        and not any(
+            term in _normalize_source_text(shape.text)
+            for term in _SOURCE_NAVIGATION_TERMS
+        )
+    ]
+    if len(text_shapes) <= 1:
+        return 1
+    title_shape = _select_source_title_shape(presentation, text_shapes)
+    body_shapes = [shape for shape in text_shapes if shape is not title_shape]
+    slide_area = presentation.slide_width * presentation.slide_height
+    body_area_ratio = (
+        sum((shape.width or 0) * (shape.height or 0) for shape in body_shapes)
+        / slide_area
+    )
+    capacity = len(body_shapes) + round(body_area_ratio * 24)
+    if any(getattr(shape, "has_table", False) for shape in slide.shapes):
+        capacity = max(capacity, 4)
+    return min(_SLIDE_BLOCK_CAPACITY, max(1, capacity))
 
 
 def _set_slide_title(
@@ -618,77 +728,443 @@ def _resolve_layout(
 def _remove_source_slides(
     presentation: Presentation,
     *,
-    keep_index: int | None = None,
+    source_slide_count: int,
 ) -> None:
     slide_ids = presentation.slides._sldIdLst
-    for index, slide_id in reversed(list(enumerate(list(slide_ids)))):
-        if index == keep_index:
-            continue
+    source_ids = list(slide_ids)[:source_slide_count]
+    for slide_id in reversed(source_ids):
         presentation.part.drop_rel(slide_id.rId)
         slide_ids.remove(slide_id)
 
 
-def _populate_reused_source_cover(
+def _duplicate_source_slide(
+    presentation: Presentation,
+    source_slide,
+):
+    destination = presentation.slides.add_slide(source_slide.slide_layout)
+    relationship_map: dict[str, str] = {}
+    skipped_relationships: set[str] = set()
+    for relationship in source_slide.part.rels.values():
+        if (
+            relationship.is_external
+            or relationship.reltype.endswith(("/slideLayout", "/notesSlide", "/slide"))
+        ):
+            skipped_relationships.add(relationship.rId)
+            continue
+        relationship_map[relationship.rId] = destination.part.relate_to(
+            relationship.target_part,
+            relationship.reltype,
+        )
+
+    destination_tree = destination.shapes._spTree
+    for element in list(destination_tree)[2:]:
+        destination_tree.remove(element)
+    for source_element in list(source_slide.shapes._spTree)[2:]:
+        if source_element.tag.endswith("}extLst"):
+            continue
+        copied_element = deepcopy(source_element)
+        _remap_copied_relationships(
+            copied_element,
+            relationship_map=relationship_map,
+            skipped_relationships=skipped_relationships,
+        )
+        destination_tree.insert_element_before(copied_element, "p:extLst")
+
+    destination_c_sld = destination._element.cSld
+    for element in list(destination_c_sld):
+        if element.tag.endswith("}bg"):
+            destination_c_sld.remove(element)
+    source_background = next(
+        (
+            element
+            for element in source_slide._element.cSld
+            if element.tag.endswith("}bg")
+        ),
+        None,
+    )
+    if source_background is not None:
+        copied_background = deepcopy(source_background)
+        _remap_copied_relationships(
+            copied_background,
+            relationship_map=relationship_map,
+            skipped_relationships=skipped_relationships,
+        )
+        destination_c_sld.insert(0, copied_background)
+    return destination
+
+
+def _remap_copied_relationships(
+    element,
+    *,
+    relationship_map: dict[str, str],
+    skipped_relationships: set[str],
+) -> None:
+    removable_nodes = []
+    for node in element.iter():
+        for attribute_name, attribute_value in list(node.attrib.items()):
+            if attribute_value in relationship_map:
+                node.set(attribute_name, relationship_map[attribute_value])
+            elif attribute_value in skipped_relationships:
+                if node.tag.endswith(("}hlinkClick", "}hlinkHover")):
+                    removable_nodes.append(node)
+                else:
+                    node.attrib.pop(attribute_name, None)
+    for node in removable_nodes:
+        if node.getparent() is not None:
+            node.getparent().remove(node)
+
+
+def _repeated_brand_texts(
+    presentation: Presentation,
+    *,
+    source_slide_count: int,
+) -> set[str]:
+    counts: Counter[str] = Counter()
+    for slide in list(presentation.slides)[:source_slide_count]:
+        slide_values = {
+            _normalize_source_text(shape.text)
+            for shape in _iter_text_shapes(slide.shapes)
+            if shape.text.strip()
+        }
+        counts.update(slide_values)
+    repeated_threshold = max(3, (source_slide_count * 3 + 4) // 5)
+    return {
+        value
+        for value, count in counts.items()
+        if count >= repeated_threshold
+        and len(value) <= 80
+        and not any(term in value for term in _SOURCE_NAVIGATION_TERMS)
+    }
+
+
+def _normalize_source_text(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+def _populate_reused_source_slide(
     presentation: Presentation,
     slide,
     *,
     title: str,
-    subtitle: str,
+    bullets: list[Block],
+    preserved_texts: set[str],
+    is_cover: bool = False,
 ) -> None:
     text_shapes = [
         shape
         for shape in _iter_text_shapes(slide.shapes)
         if getattr(shape, "has_text_frame", False) and shape.text.strip()
     ]
-    if not text_shapes:
+    editable_shapes = [
+        shape
+        for shape in text_shapes
+        if _normalize_source_text(shape.text) not in preserved_texts
+    ]
+    if not editable_shapes:
         _set_slide_title(presentation, slide, title, is_cover=True)
         _set_slide_bullets(
             presentation,
             slide,
-            [(subtitle, 0)],
-            prefer_subtitle=True,
+            bullets,
+            prefer_subtitle=is_cover,
         )
         return
 
-    title_shape = max(
-        text_shapes,
+    title_shape = _select_source_title_shape(presentation, editable_shapes)
+    body_shapes = sorted(
+        [shape for shape in editable_shapes if shape is not title_shape],
+        key=lambda shape: (
+            (shape.width or 0) * (shape.height or 0),
+            _maximum_text_font_size(shape),
+        ),
+        reverse=True,
+    )
+    slide_area = presentation.slide_width * presentation.slide_height
+
+    for shape in editable_shapes:
+        _replace_shape_text_preserving_style(shape, "")
+    for shape in text_shapes:
+        if any(
+            term in _normalize_source_text(shape.text)
+            for term in _SOURCE_NAVIGATION_TERMS
+        ):
+            _replace_shape_text_preserving_style(shape, "")
+
+    _ensure_source_title_bounds(presentation, title_shape)
+    _replace_shape_text_preserving_style(
+        title_shape,
+        _truncate(title, max_length=100),
+        max_font_size=_source_title_font_cap(
+            presentation,
+            title_shape,
+            title,
+            is_cover=is_cover,
+        ),
+    )
+
+    normalized = _normalize_blocks(bullets)
+    if is_cover:
+        _separate_source_title_and_body(
+            presentation,
+            title_shape,
+            body_shapes,
+        )
+        subtitle_shape = body_shapes[0] if body_shapes else None
+        subtitle = "\n".join(text for text, _ in normalized)
+        if subtitle_shape is not None:
+            _replace_shape_text_preserving_style(
+                subtitle_shape,
+                _truncate(subtitle, max_length=180),
+                max_font_size=16,
+            )
+        elif subtitle:
+            _set_slide_bullets(
+                presentation,
+                slide,
+                [(subtitle, 0)],
+                prefer_subtitle=True,
+            )
+        _clear_source_tables(slide)
+        return
+
+    tables = [
+        shape.table
+        for shape in slide.shapes
+        if getattr(shape, "has_table", False)
+    ]
+    if tables:
+        _populate_source_table(tables[0], normalized)
+        for table in tables[1:]:
+            _populate_source_table(table, [])
+        return
+
+    display_lines = [
+        f"{'  ' * max(level, 0)}• {_truncate(text, max_length=220)}"
+        for text, level in normalized
+    ]
+    usable_body_shapes = [
+        shape
+        for shape in body_shapes
+        if ((shape.width or 0) * (shape.height or 0)) / slide_area >= 0.01
+    ] or body_shapes[:1]
+    if (
+        len(display_lines) > max(2, len(usable_body_shapes) * 2)
+        and usable_body_shapes
+        and _can_merge_source_body_zone(presentation, body_shapes)
+    ):
+        _expand_shape_to_union(usable_body_shapes[0], body_shapes)
+        usable_body_shapes = usable_body_shapes[:1]
+
+    _separate_source_title_and_body(
+        presentation,
+        title_shape,
+        usable_body_shapes,
+    )
+    slot_count = min(len(usable_body_shapes), len(display_lines), 4)
+    if slot_count:
+        for slot_index, shape in enumerate(usable_body_shapes[:slot_count]):
+            start = (len(display_lines) * slot_index) // slot_count
+            end = (len(display_lines) * (slot_index + 1)) // slot_count
+            value = _fit_source_body_copy(
+                presentation,
+                shape,
+                "\n".join(display_lines[start:end]),
+            )
+            _replace_shape_text_preserving_style(
+                shape,
+                value,
+                max_font_size=_source_body_font_cap(
+                    presentation,
+                    shape,
+                    value,
+                ),
+            )
+    elif normalized:
+        _set_slide_bullets(
+            presentation,
+            slide,
+            normalized,
+        )
+
+
+def _source_title_font_cap(
+    presentation: Presentation,
+    shape,
+    title: str,
+    *,
+    is_cover: bool,
+) -> int:
+    width_ratio = (shape.width or 0) / presentation.slide_width
+    cap = 42 if is_cover else 34
+    if width_ratio < 0.25:
+        cap = min(cap, 24)
+    elif width_ratio < 0.4 or len(title) > 18:
+        cap = min(cap, 28)
+    if len(title) > 36:
+        cap = min(cap, 24)
+    return cap
+
+
+def _ensure_source_title_bounds(
+    presentation: Presentation,
+    shape,
+) -> None:
+    minimum_width = int(presentation.slide_width * 0.32)
+    minimum_height = int(presentation.slide_height * 0.09)
+    if (shape.width or 0) < minimum_width:
+        center = (shape.left or 0) + (shape.width or 0) // 2
+        shape.width = minimum_width
+        shape.left = max(
+            0,
+            min(
+                center - minimum_width // 2,
+                presentation.slide_width - minimum_width,
+            ),
+        )
+    if (shape.height or 0) < minimum_height:
+        shape.height = minimum_height
+
+
+def _separate_source_title_and_body(
+    presentation: Presentation,
+    title_shape,
+    body_shapes: list,
+) -> None:
+    title_left = title_shape.left or 0
+    title_right = title_left + (title_shape.width or 0)
+    title_bottom = (title_shape.top or 0) + (title_shape.height or 0)
+    margin = int(presentation.slide_height * 0.015)
+    maximum_bottom = int(presentation.slide_height * 0.9)
+
+    for shape in body_shapes:
+        shape_left = shape.left or 0
+        shape_right = shape_left + (shape.width or 0)
+        shape_top = shape.top or 0
+        shape_bottom = shape_top + (shape.height or 0)
+        horizontally_overlaps = min(title_right, shape_right) > max(
+            title_left,
+            shape_left,
+        )
+        vertically_overlaps = min(title_bottom, shape_bottom) > max(
+            title_shape.top or 0,
+            shape_top,
+        )
+        if not horizontally_overlaps or not vertically_overlaps:
+            continue
+
+        new_top = title_bottom + margin
+        available_height = maximum_bottom - new_top
+        if available_height <= 0:
+            continue
+        shape.top = new_top
+        shape.height = min(shape.height or available_height, available_height)
+
+
+def _select_source_title_shape(
+    presentation: Presentation,
+    text_shapes: list,
+):
+    candidates = [
+        shape
+        for shape in text_shapes
+        if (shape.top or 0) <= presentation.slide_height * 0.35
+        and (shape.width or 0) >= presentation.slide_width * 0.1
+    ]
+    pool = candidates or text_shapes
+    return max(
+        pool,
         key=lambda shape: (
             _maximum_text_font_size(shape),
             -(shape.top or 0),
             (shape.width or 0) * (shape.height or 0),
         ),
     )
-    remaining = [shape for shape in text_shapes if shape is not title_shape]
-    subtitle_shape = (
-        max(
-            remaining,
-            key=lambda shape: (
-                (shape.width or 0) * (shape.height or 0),
-                _maximum_text_font_size(shape),
-            ),
-        )
-        if remaining
-        else None
-    )
 
-    _clear_source_slide_text(slide)
-    _replace_shape_text_preserving_style(
-        title_shape,
-        _truncate(title, max_length=100),
-        max_font_size=28 if len(title) > 36 else 42,
+
+def _source_body_font_cap(
+    presentation: Presentation,
+    shape,
+    value: str,
+) -> int:
+    area_ratio = (
+        (shape.width or 0) * (shape.height or 0)
+        / (presentation.slide_width * presentation.slide_height)
     )
-    if subtitle_shape is not None:
-        _replace_shape_text_preserving_style(
-            subtitle_shape,
-            _truncate(subtitle, max_length=180),
-            max_font_size=16,
-        )
-    elif subtitle:
-        _set_slide_bullets(
-            presentation,
-            slide,
-            [(subtitle, 0)],
-            prefer_subtitle=True,
+    height_ratio = (shape.height or 0) / presentation.slide_height
+    line_count = value.count("\n") + 1
+    if area_ratio < 0.015:
+        return 11
+    if area_ratio < 0.03:
+        return 13
+    if height_ratio < 0.15 and len(value) > 70:
+        return 11
+    if line_count >= 5 or len(value) > 320:
+        return 13
+    if (
+        line_count >= 3
+        or (line_count >= 2 and area_ratio < 0.06)
+        or area_ratio < 0.04
+        or len(value) > 180
+    ):
+        return 15
+    return 18
+
+
+def _fit_source_body_copy(
+    presentation: Presentation,
+    shape,
+    value: str,
+) -> str:
+    area_ratio = (
+        (shape.width or 0) * (shape.height or 0)
+        / (presentation.slide_width * presentation.slide_height)
+    )
+    if area_ratio < 0.015:
+        return _truncate(value, max_length=65)
+    if area_ratio < 0.03:
+        return _truncate(value, max_length=120)
+    return value
+
+
+def _can_merge_source_body_zone(
+    presentation: Presentation,
+    body_shapes: list,
+) -> bool:
+    if not body_shapes:
+        return False
+    left = min(shape.left or 0 for shape in body_shapes)
+    right = max((shape.left or 0) + (shape.width or 0) for shape in body_shapes)
+    width_ratio = (right - left) / presentation.slide_width
+    return width_ratio <= 0.55
+
+
+def _expand_shape_to_union(shape, shapes: list) -> None:
+    left = min(item.left or 0 for item in shapes)
+    top = min(item.top or 0 for item in shapes)
+    right = max((item.left or 0) + (item.width or 0) for item in shapes)
+    bottom = max((item.top or 0) + (item.height or 0) for item in shapes)
+    shape.left = left
+    shape.top = top
+    shape.width = right - left
+    shape.height = bottom - top
+
+
+def _clear_source_tables(slide) -> None:
+    for shape in list(slide.shapes):
+        if getattr(shape, "has_table", False):
+            element = shape._element
+            element.getparent().remove(element)
+
+
+def _populate_source_table(table, blocks: list[Block]) -> None:
+    values = [_truncate(text, max_length=160) for text, _ in blocks]
+    cells = [cell for row in table.rows for cell in row.cells]
+    for index, cell in enumerate(cells):
+        value = values[index] if index < len(values) else ""
+        _replace_text_frame_preserving_style(
+            cell.text_frame,
+            value,
+            max_font_size=14,
         )
 
 
@@ -711,23 +1187,25 @@ def _iter_text_shapes(shapes):
             yield from _iter_text_shapes(nested_shapes)
 
 
-def _clear_source_slide_text(slide) -> None:
-    for shape in _iter_text_shapes(slide.shapes):
-        _replace_shape_text_preserving_style(shape, "")
-    for shape in list(slide.shapes):
-        if not getattr(shape, "has_table", False):
-            continue
-        element = shape._element
-        element.getparent().remove(element)
-
-
 def _replace_shape_text_preserving_style(
     shape,
     value: str,
     *,
     max_font_size: int | None = None,
 ) -> None:
-    text_frame = shape.text_frame
+    _replace_text_frame_preserving_style(
+        shape.text_frame,
+        value,
+        max_font_size=max_font_size,
+    )
+
+
+def _replace_text_frame_preserving_style(
+    text_frame,
+    value: str,
+    *,
+    max_font_size: int | None = None,
+) -> None:
     text_frame.word_wrap = True
     try:
         text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
@@ -738,11 +1216,10 @@ def _replace_shape_text_preserving_style(
     first_paragraph.space_before = Pt(0)
     first_paragraph.space_after = Pt(0)
     first_runs = list(first_paragraph.runs)
-    for paragraph in text_frame.paragraphs:
-        for run in paragraph.runs:
-            run.text = ""
-        if not paragraph.runs:
-            paragraph.text = ""
+    for run in first_paragraph.runs:
+        run.text = ""
+    for paragraph in list(text_frame.paragraphs)[1:]:
+        paragraph._p.getparent().remove(paragraph._p)
     if first_runs:
         first_runs[0].text = value
         if max_font_size is not None and (
@@ -765,8 +1242,8 @@ def _validate_exported_pptx(output_path: Path) -> None:
         raise ValueError("Generated PPTX does not contain any slides.")
     final_slide_text = [
         shape.text
-        for shape in exported.slides[-1].shapes
-        if hasattr(shape, "text")
+        for shape in _iter_text_shapes(exported.slides[-1].shapes)
+        if shape.text.strip()
     ]
     if "근거 출처" not in final_slide_text:
         raise ValueError("Generated PPTX is missing the final evidence slide.")
