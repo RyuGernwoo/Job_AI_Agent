@@ -12,10 +12,10 @@
 | 백엔드 | 템플릿 업로드·조회·레이아웃 매핑·삭제 API 구현 |
 | 저장소 | 로컬 테스트용 메모리 저장소와 Supabase Storage/Postgres 저장소 구현 |
 | 보안 검사 | `.pptx`, ZIP 구조, 압축 해제 크기, macro, 외부 관계 검사 구현 |
-| PPTX export | 원본 예시 슬라이드 제거, 마스터·layout 재사용, placeholder fallback, 마지막 출처 슬라이드 검증 구현 |
+| PPTX export | 안전한 원본 표지 1장 재사용, 나머지 예시 슬라이드 제외, 마스터·layout 재사용, placeholder fallback, 마지막 출처 슬라이드 검증 구현 |
 | 프론트엔드 | 사용 권한 확인, 업로드·교체·삭제, 자동 매핑 확인·수정, 적용 상태 표시 구현 |
 | fallback | 템플릿 조회·다운로드·생성 실패 시 기본 PPTX 생성 및 응답 헤더로 결과 표시 |
-| 남은 운영 작업 | `009_ppt_template_storage.sql` 적용, 실제 기관 템플릿 3종 시각 검증, GCE 재배포 |
+| 남은 운영 작업 | `009_ppt_template_storage.sql` 적용, GCE 재배포 |
 
 ## 1. 목적
 
@@ -38,7 +38,7 @@
 | 구분 | MVP 적용 | 제외 또는 후순위 |
 | --- | --- | --- |
 | 지원 형식 | `.pptx` | `.ppt`, `.pot`, `.pptm`, Google Slides 직접 연동 |
-| 적용 범위 | 테마, 슬라이드 마스터, 기존 레이아웃, 제목·본문 placeholder | 원본 슬라이드의 애니메이션·전환 효과·매크로 완전 복제 |
+| 적용 범위 | 안전한 원본 표지 디자인 1장, 테마, 슬라이드 마스터, 기존 레이아웃, 제목·본문 placeholder | 원본 슬라이드의 애니메이션·전환 효과·매크로 완전 복제 |
 | 템플릿 단위 | 프로젝트별 1개 활성 템플릿 | 기관 공용 템플릿 라이브러리, 사용자별 권한 관리 |
 | 생성 방식 | semantic slide type을 템플릿 레이아웃에 매핑하여 새 슬라이드 생성 | 임의 원본 슬라이드 XML의 무제한 복제 |
 | 저장소 | Supabase Storage 비공개 bucket + Postgres metadata | GCE 컨테이너 로컬 영구 저장 |
@@ -139,11 +139,12 @@ create table lessonpack_ppt_templates (
 1. 패키지의 프로젝트와 활성 `template_id`를 조회한다.
 2. Storage에서 템플릿을 임시 경로로 내려받고 SHA-256을 다시 확인한다.
 3. `python-pptx`의 `Presentation(template_path)`로 파일을 연다.
-4. semantic slide type별로 매핑된 `slide_layout`을 사용해 새 슬라이드를 추가한다.
-5. title/body placeholder에 검증된 패키지 텍스트를 넣고, placeholder가 없으면 안전한 텍스트 상자를 추가한다.
-6. 단일 슬라이드에 들어갈 수 있는 글머리표 수·글자 수를 제한하고 넘친 항목은 다음 슬라이드로 분할한다.
-7. 마지막 `sources` 슬라이드에만 compact evidence를 배치한다.
-8. 저장한 결과를 다시 열어 슬라이드 수·필수 제목·ZIP 구조를 검증한 뒤 다운로드한다.
+4. 목차·라이선스·외부 링크·과도한 텍스트가 없는 앞쪽 원본 슬라이드를 표지 후보로 선별해 디자인을 재사용하고, 나머지 원본 슬라이드는 샘플 콘텐츠 유입을 막기 위해 제외한다.
+5. semantic slide type별로 매핑된 `slide_layout`을 사용해 새 슬라이드를 추가한다.
+6. title/body placeholder에 검증된 패키지 텍스트를 넣고, placeholder가 없으면 안전한 텍스트 상자를 추가한다.
+7. 단일 슬라이드에 들어갈 수 있는 글머리표 수·글자 수를 제한하고 넘친 항목은 다음 슬라이드로 분할한다.
+8. 마지막 `sources` 슬라이드에만 compact evidence를 배치한다.
+9. 저장한 결과를 다시 열어 슬라이드 수·필수 제목·ZIP 구조를 검증한 뒤 다운로드한다.
 
 `python-pptx`는 기존 테마와 layout을 활용하는 데 적합하지만 SmartArt, 차트 데이터, 애니메이션, 일부 복잡한 도형의 완전한 복제 API는 제공하지 않는다. 따라서 MVP는 템플릿 layout을 기반으로 새 슬라이드를 만드는 방식을 채택한다.
 
@@ -181,7 +182,7 @@ create table lessonpack_ppt_templates (
 | 4 | template-aware export service 구현 | 구현 완료 |
 | 5 | fallback과 적용 상태 응답 추가 | 구현 완료 |
 | 6 | 자동 검증 | 구현 완료, 전체 회귀 테스트로 최종 확인 |
-| 7 | 실제 Supabase migration·기관 템플릿 시각 검증·GCE 배포 | 운영 적용 필요 |
+| 7 | 실제 Supabase migration·기관 템플릿 시각 검증·GCE 배포 | 템플릿 3종 시각 검증 완료, migration·GCE 재배포 필요 |
 
 ## 9. 검증 프로토콜
 
@@ -205,9 +206,21 @@ create table lessonpack_ppt_templates (
 - 마지막 출처 슬라이드에만 근거가 표시되는가
 - 한국어 글꼴 대체로 의미가 훼손되지 않는가
 
+### 2026-07-24 실제 템플릿 검증 결과
+
+루트의 `template_1.pptx`, `template_2.pptx`, `template_3.pptx`를 동일한 17장 강의 패키지에 적용하고 PowerPoint로 전체 슬라이드를 렌더링했다.
+
+| 템플릿 | 원본 슬라이드 | 재사용 표지 | 샘플 문구 유입 | 마지막 출처 | 텍스트 넘침 | 결과 |
+| --- | ---: | ---: | ---: | --- | ---: | --- |
+| `template_1.pptx` | 14 | 1번 | 0건 | 확인 | 0건 | PASS |
+| `template_2.pptx` | 11 | 1번 | 0건 | 확인 | 0건 | PASS |
+| `template_3.pptx` | 10 | 1번 | 0건 | 확인 | 0건 | PASS |
+
+검증 과정에서 원본 슬라이드를 모두 제거하던 기준을 조정했다. 앞쪽 3장 중 목차·라이선스·외부 링크·과도한 텍스트가 없는 슬라이드 1장을 표지 디자인으로 재사용하고, 나머지는 샘플 콘텐츠 유입을 막기 위해 제외한다. 표지의 기존 문구와 표는 제거하며 제목·운영 요약으로 교체한다. 본문 글자 크기는 템플릿 기본값이 지나치게 큰 경우에도 placeholder를 넘지 않도록 제한한다.
+
 ## 10. 완료 조건과 후속 확장
 
-MVP 완료 조건은 유효한 사용자 `.pptx` 3종에서 템플릿 디자인을 유지한 PPTX를 생성하고, 기존 기본 export 회귀 없이 자동 테스트와 시각 검증을 통과하는 것이다.
+MVP 완료 조건은 유효한 사용자 `.pptx` 3종에서 안전한 원본 표지 디자인과 레이아웃을 유지한 PPTX를 생성하고, 샘플 콘텐츠 유입 및 기존 기본 export 회귀 없이 자동 테스트와 시각 검증을 통과하는 것이다.
 
 후속 확장 후보는 기관 공용 템플릿 라이브러리, 템플릿 썸네일 미리보기, 슬라이드별 사용자 편집, 이미지 placeholder 자동 삽입, PowerPoint Add-in 연동이다. 이들은 계정·권한·저장 정책이 정리된 뒤 별도 범위로 진행한다.
 

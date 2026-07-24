@@ -28,6 +28,19 @@ DEFAULT_MAX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024
 _SAFE_FILENAME = re.compile(r"[^0-9A-Za-z가-힣._ -]+")
 _TITLE_TYPES = {"TITLE", "CENTER_TITLE"}
 _BODY_TYPES = {"BODY", "OBJECT", "SUBTITLE", "VERTICAL_BODY", "VERTICAL_OBJECT"}
+_SOURCE_COVER_EXCLUSION_TERMS = (
+    "contents",
+    "table of contents",
+    "목차",
+    "free fonts",
+    "template uses",
+    "presentation template is free",
+    "happy designing",
+    "license",
+    "라이선스",
+    "사용 안내",
+    "사용방법",
+)
 
 
 class PPTTemplateStore(Protocol):
@@ -262,9 +275,15 @@ def analyze_ppt_template(
     if not layouts:
         raise ValueError("PPT template must contain at least one slide layout.")
 
-    if len(presentation.slides) > 0:
+    source_cover_index = reusable_source_cover_index(presentation)
+    if source_cover_index is not None:
         warnings.append(
-            "템플릿의 기존 예시 슬라이드는 제외하고 슬라이드 마스터와 레이아웃만 사용합니다."
+            f"원본 슬라이드 {source_cover_index + 1}의 시각 디자인을 생성 표지에 재사용합니다. "
+            "나머지 원본 슬라이드는 샘플 콘텐츠 유입을 막기 위해 레이아웃 분석에만 사용합니다."
+        )
+    elif len(presentation.slides) > 0:
+        warnings.append(
+            "안전하게 재사용할 표지 후보가 없어 원본 슬라이드는 레이아웃 분석에만 사용합니다."
         )
     if not any(layout.supports_title and layout.supports_body for layout in layouts):
         warnings.append(
@@ -287,6 +306,31 @@ def analyze_ppt_template(
         created_at=now,
         updated_at=now,
     )
+
+
+def reusable_source_cover_index(presentation: Presentation) -> int | None:
+    """Return a safe source slide index whose visual design can become the cover."""
+    for index, slide in enumerate(list(presentation.slides)[:3]):
+        text = " ".join(
+            shape.text.strip()
+            for shape in slide.shapes
+            if getattr(shape, "has_text_frame", False) and shape.text.strip()
+        ).casefold()
+        if not text:
+            continue
+        if any(term in text for term in _SOURCE_COVER_EXCLUSION_TERMS):
+            continue
+        if any(getattr(rel, "is_external", False) for rel in slide.part.rels.values()):
+            continue
+        text_shape_count = sum(
+            1
+            for shape in slide.shapes
+            if getattr(shape, "has_text_frame", False) and shape.text.strip()
+        )
+        if text_shape_count > 8:
+            continue
+        return index
+    return None
 
 
 def validate_layout_mapping(

@@ -11,6 +11,7 @@ from pptx.enum.text import MSO_AUTO_SIZE
 from pptx.util import Inches, Pt
 
 from lectureops_agent.models.schemas import CourseType, CitationDetail, LessonPackage, NCSAlignment
+from lectureops_agent.services.ppt_template_service import reusable_source_cover_index
 
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -96,22 +97,40 @@ def export_lesson_package_pptx(
         if template_content is not None
         else Presentation()
     )
+    source_cover_index = (
+        reusable_source_cover_index(presentation)
+        if template_content is not None
+        else None
+    )
     if template_content is not None:
-        _remove_source_slides(presentation)
+        _remove_source_slides(presentation, keep_index=source_cover_index)
     mapping = layout_mapping or {}
 
     # 표지
-    cover = presentation.slides.add_slide(
-        _resolve_layout(presentation, mapping, "cover", fallback_index=0)
-    )
-    _set_slide_title(presentation, cover, package.lesson_plan.title, is_cover=True)
     training_plan = _training_plan_summary(package)
-    _set_slide_bullets(
-        presentation,
-        cover,
-        [(value, 0) for value in ["LessonPack AI 강의 패키지", training_plan] if value],
-        prefer_subtitle=True,
-    )
+    if source_cover_index is not None:
+        cover = presentation.slides[0]
+        _populate_reused_source_cover(
+            presentation,
+            cover,
+            title=package.lesson_plan.title,
+            subtitle="\n".join(
+                value
+                for value in ["LessonPack AI 강의 패키지", training_plan]
+                if value
+            ),
+        )
+    else:
+        cover = presentation.slides.add_slide(
+            _resolve_layout(presentation, mapping, "cover", fallback_index=0)
+        )
+        _set_slide_title(presentation, cover, package.lesson_plan.title, is_cover=True)
+        _set_slide_bullets(
+            presentation,
+            cover,
+            [(value, 0) for value in ["LessonPack AI 강의 패키지", training_plan] if value],
+            prefer_subtitle=True,
+        )
 
     # 학습 목표
     _add_bullet_slides(
@@ -518,7 +537,6 @@ def _set_slide_bullets(
     prefer_subtitle: bool = False,
 ) -> None:
     body = _prepare_body_frame(slide, prefer_subtitle=prefer_subtitle)
-    fallback_font = body is None
     if body is None:
         box = slide.shapes.add_textbox(
             Inches(0.8),
@@ -538,8 +556,8 @@ def _set_slide_bullets(
         paragraph = body.paragraphs[0] if index == 0 else body.add_paragraph()
         paragraph.text = _truncate(text, max_length=500)
         paragraph.level = min(max(level, 0), 4)
-        if fallback_font:
-            paragraph.font.size = Pt(18 if level == 0 else 16)
+        # 템플릿의 과도하게 큰 본문 기본값이 content box를 넘지 않도록 상한을 둔다.
+        paragraph.font.size = Pt(18 if level == 0 else 16)
 
 
 def _prepare_body_frame(slide, *, prefer_subtitle: bool):
@@ -597,11 +615,145 @@ def _resolve_layout(
     return presentation.slide_layouts[layout_index]
 
 
-def _remove_source_slides(presentation: Presentation) -> None:
+def _remove_source_slides(
+    presentation: Presentation,
+    *,
+    keep_index: int | None = None,
+) -> None:
     slide_ids = presentation.slides._sldIdLst
-    for slide_id in list(slide_ids):
+    for index, slide_id in reversed(list(enumerate(list(slide_ids)))):
+        if index == keep_index:
+            continue
         presentation.part.drop_rel(slide_id.rId)
         slide_ids.remove(slide_id)
+
+
+def _populate_reused_source_cover(
+    presentation: Presentation,
+    slide,
+    *,
+    title: str,
+    subtitle: str,
+) -> None:
+    text_shapes = [
+        shape
+        for shape in _iter_text_shapes(slide.shapes)
+        if getattr(shape, "has_text_frame", False) and shape.text.strip()
+    ]
+    if not text_shapes:
+        _set_slide_title(presentation, slide, title, is_cover=True)
+        _set_slide_bullets(
+            presentation,
+            slide,
+            [(subtitle, 0)],
+            prefer_subtitle=True,
+        )
+        return
+
+    title_shape = max(
+        text_shapes,
+        key=lambda shape: (
+            _maximum_text_font_size(shape),
+            -(shape.top or 0),
+            (shape.width or 0) * (shape.height or 0),
+        ),
+    )
+    remaining = [shape for shape in text_shapes if shape is not title_shape]
+    subtitle_shape = (
+        max(
+            remaining,
+            key=lambda shape: (
+                (shape.width or 0) * (shape.height or 0),
+                _maximum_text_font_size(shape),
+            ),
+        )
+        if remaining
+        else None
+    )
+
+    _clear_source_slide_text(slide)
+    _replace_shape_text_preserving_style(
+        title_shape,
+        _truncate(title, max_length=100),
+        max_font_size=28 if len(title) > 36 else 42,
+    )
+    if subtitle_shape is not None:
+        _replace_shape_text_preserving_style(
+            subtitle_shape,
+            _truncate(subtitle, max_length=180),
+            max_font_size=16,
+        )
+    elif subtitle:
+        _set_slide_bullets(
+            presentation,
+            slide,
+            [(subtitle, 0)],
+            prefer_subtitle=True,
+        )
+
+
+def _maximum_text_font_size(shape) -> float:
+    sizes = [
+        run.font.size.pt
+        for paragraph in shape.text_frame.paragraphs
+        for run in paragraph.runs
+        if run.font.size is not None
+    ]
+    return max(sizes, default=0.0)
+
+
+def _iter_text_shapes(shapes):
+    for shape in shapes:
+        if getattr(shape, "has_text_frame", False):
+            yield shape
+        nested_shapes = getattr(shape, "shapes", None)
+        if nested_shapes is not None:
+            yield from _iter_text_shapes(nested_shapes)
+
+
+def _clear_source_slide_text(slide) -> None:
+    for shape in _iter_text_shapes(slide.shapes):
+        _replace_shape_text_preserving_style(shape, "")
+    for shape in list(slide.shapes):
+        if not getattr(shape, "has_table", False):
+            continue
+        element = shape._element
+        element.getparent().remove(element)
+
+
+def _replace_shape_text_preserving_style(
+    shape,
+    value: str,
+    *,
+    max_font_size: int | None = None,
+) -> None:
+    text_frame = shape.text_frame
+    text_frame.word_wrap = True
+    try:
+        text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    except (ValueError, NotImplementedError):
+        pass
+    first_paragraph = text_frame.paragraphs[0]
+    first_paragraph.line_spacing = 1.0
+    first_paragraph.space_before = Pt(0)
+    first_paragraph.space_after = Pt(0)
+    first_runs = list(first_paragraph.runs)
+    for paragraph in text_frame.paragraphs:
+        for run in paragraph.runs:
+            run.text = ""
+        if not paragraph.runs:
+            paragraph.text = ""
+    if first_runs:
+        first_runs[0].text = value
+        if max_font_size is not None and (
+            first_runs[0].font.size is None
+            or first_runs[0].font.size.pt > max_font_size
+        ):
+            first_runs[0].font.size = Pt(max_font_size)
+    else:
+        first_paragraph.text = value
+        if max_font_size is not None:
+            first_paragraph.font.size = Pt(max_font_size)
 
 
 def _validate_exported_pptx(output_path: Path) -> None:

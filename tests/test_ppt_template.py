@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.util import Inches
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +21,7 @@ from lectureops_agent.services.ppt_template_service import (
     InMemoryPPTTemplateStore,
     SupabasePPTTemplateStore,
     analyze_ppt_template,
+    reusable_source_cover_index,
 )
 
 
@@ -44,6 +47,14 @@ def template_bytes() -> bytes:
     presentation = Presentation()
     sample_slide = presentation.slides.add_slide(presentation.slide_layouts[0])
     sample_slide.shapes.title.text = "REMOVE THIS SAMPLE SLIDE"
+    accent = sample_slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(0),
+        Inches(0),
+        Inches(1),
+        Inches(7.5),
+    )
+    accent.name = "LESSONPACK_TEMPLATE_ACCENT"
     stream = io.BytesIO()
     presentation.save(stream)
     return stream.getvalue()
@@ -175,6 +186,28 @@ class PPTTemplateTests(unittest.TestCase):
             },
         )
         self.assertTrue(metadata.warnings)
+        self.assertTrue(
+            any("시각 디자인" in warning for warning in metadata.warnings)
+        )
+
+    def test_source_cover_selection_skips_contents_slide(self):
+        presentation = Presentation()
+        contents = presentation.slides.add_slide(presentation.slide_layouts[6])
+        contents.shapes.add_textbox(
+            Inches(1),
+            Inches(1),
+            Inches(5),
+            Inches(1),
+        ).text_frame.text = "Table of Contents"
+        cover = presentation.slides.add_slide(presentation.slide_layouts[6])
+        cover.shapes.add_textbox(
+            Inches(1),
+            Inches(1),
+            Inches(5),
+            Inches(1),
+        ).text_frame.text = "Course Presentation"
+
+        self.assertEqual(reusable_source_cover_index(presentation), 1)
 
     def test_template_analysis_rejects_non_pptx_content(self):
         with self.assertRaisesRegex(ValueError, "Office Open XML"):
@@ -251,6 +284,12 @@ class PPTTemplateTests(unittest.TestCase):
         )
         self.assertIn("Using Python Functions", slide_text)
         self.assertNotIn("REMOVE THIS SAMPLE SLIDE", slide_text)
+        self.assertTrue(
+            any(
+                shape.name == "LESSONPACK_TEMPLATE_ACCENT"
+                for shape in presentation.slides[0].shapes
+            )
+        )
         final_slide_text = [
             shape.text
             for shape in presentation.slides[-1].shapes
